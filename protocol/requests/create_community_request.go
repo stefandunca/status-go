@@ -29,6 +29,7 @@ type CreateCommunity struct {
 	ImageBx                      int                                  `json:"imageBx"`
 	ImageBy                      int                                  `json:"imageBy"`
 	HistoryArchiveSupportEnabled bool                                 `json:"historyArchiveSupportEnabled,omitempty"`
+	Encrypted                    bool                                 `json:"encrypted,omitempty"`
 }
 
 func adaptIdentityImageToProtobuf(img *userimages.IdentityImage) *protobuf.IdentityImage {
@@ -87,6 +88,7 @@ func (c *CreateCommunity) ToCommunityDescription() (*protobuf.CommunityDescripti
 			Access:  c.Membership,
 			EnsOnly: c.EnsOnly,
 		},
+		Encrypted: c.Encrypted,
 	}
 	return description, nil
 }
