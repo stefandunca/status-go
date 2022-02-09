@@ -4,6 +4,7 @@
 // 1642666031_add_removed_clock_to_bookmarks.up.sql (117B)
 // 1643644541_gif_api_key_setting.up.sql (108B)
 // 1644188994_recent_stickers.up.sql (79B)
+// 1644403381_add_clock_column_to_accounts.up.sql (61B)
 // 1646659233_add_address_to_dapp_permisssion.up.sql (700B)
 // 1646841105_add_emoji_account.up.sql (96B)
 // 1647278782_display_name.up.sql (110B)
@@ -160,6 +161,26 @@ func _1644188994_recent_stickersUpSql() (*asset, error) {
 
 	info := bindataFileInfo{name: "1644188994_recent_stickers.up.sql", size: 79, mode: os.FileMode(0644), modTime: time.Unix(1647339453, 0)}
 	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x1e, 0xad, 0xaa, 0x30, 0xbf, 0x4, 0x7, 0xf8, 0xc3, 0x3, 0xb8, 0x97, 0x23, 0x2b, 0xbd, 0x1c, 0x60, 0x69, 0xb0, 0x42, 0x5e, 0x6b, 0xd, 0xa7, 0xa3, 0x6b, 0x2e, 0xdc, 0x70, 0x13, 0x72, 0x7}}
+	return a, nil
+}
+
+var __1644403381_add_clock_column_to_accountsUpSql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x04\xc0\xb1\x09\x80\x40\x0c\x05\xd0\x55\xfe\x08\xf6\x56\xd1\x44\x10\xbe\x39\x90\x64\x00\x49\xa9\x78\x85\xba\xbf\x4f\x18\xb6\x23\x64\xa2\xe1\xa8\xea\xdf\xfd\x3e\x10\x55\xcc\x8d\xb9\x39\xea\xea\x75\x62\xf5\x80\xb7\x80\x27\x09\xb5\x45\x92\x81\x61\xfc\x03\x00\x00\xff\xff\x76\xa9\xa0\x2b\x3d\x00\x00\x00")
+
+func _1644403381_add_clock_column_to_accountsUpSqlBytes() ([]byte, error) {
+	return bindataRead(
+		__1644403381_add_clock_column_to_accountsUpSql,
+		"1644403381_add_clock_column_to_accounts.up.sql",
+	)
+}
+
+func _1644403381_add_clock_column_to_accountsUpSql() (*asset, error) {
+	bytes, err := _1644403381_add_clock_column_to_accountsUpSqlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "1644403381_add_clock_column_to_accounts.up.sql", size: 61, mode: os.FileMode(0644), modTime: time.Unix(1648804889, 0)}
+	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0xda, 0x46, 0xff, 0x91, 0xb8, 0x13, 0x9c, 0x54, 0x5f, 0xb7, 0x67, 0xf0, 0x4a, 0x44, 0x4d, 0xf9, 0xc9, 0xaa, 0x1b, 0x60, 0x46, 0x9e, 0x0, 0xaa, 0xe1, 0xd8, 0xf6, 0xc8, 0xea, 0x8e, 0x62, 0xff}}
 	return a, nil
 }
 
@@ -482,6 +503,8 @@ var _bindata = map[string]func() (*asset, error){
 
 	"1644188994_recent_stickers.up.sql": _1644188994_recent_stickersUpSql,
 
+	"1644403381_add_clock_column_to_accounts.up.sql": _1644403381_add_clock_column_to_accountsUpSql,
+
 	"1646659233_add_address_to_dapp_permisssion.up.sql": _1646659233_add_address_to_dapp_permisssionUpSql,
 
 	"1646841105_add_emoji_account.up.sql": _1646841105_add_emoji_accountUpSql,
@@ -550,6 +573,7 @@ var _bintree = &bintree{nil, map[string]*bintree{
 	"1642666031_add_removed_clock_to_bookmarks.up.sql":  &bintree{_1642666031_add_removed_clock_to_bookmarksUpSql, map[string]*bintree{}},
 	"1643644541_gif_api_key_setting.up.sql":             &bintree{_1643644541_gif_api_key_settingUpSql, map[string]*bintree{}},
 	"1644188994_recent_stickers.up.sql":                 &bintree{_1644188994_recent_stickersUpSql, map[string]*bintree{}},
+	"1644403381_add_clock_column_to_accounts.up.sql":    &bintree{_1644403381_add_clock_column_to_accountsUpSql, map[string]*bintree{}},
 	"1646659233_add_address_to_dapp_permisssion.up.sql": &bintree{_1646659233_add_address_to_dapp_permisssionUpSql, map[string]*bintree{}},
 	"1646841105_add_emoji_account.up.sql":               &bintree{_1646841105_add_emoji_accountUpSql, map[string]*bintree{}},
 	"1647278782_display_name.up.sql":                    &bintree{_1647278782_display_nameUpSql, map[string]*bintree{}},

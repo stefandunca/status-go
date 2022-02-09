@@ -31,7 +31,7 @@ const (
 	accountTypeGenerated = "generated"
 	accountTypeKey       = "key"
 	accountTypeSeed      = "seed"
-	accountTypeWatch     = "watch"
+	AccountTypeWatch     = "watch"
 )
 
 // IsOwnAccount returns true if this is an account we have the private key for
@@ -213,4 +213,24 @@ func (db *Database) GetAddresses() (rst []types.Address, err error) {
 func (db *Database) AddressExists(address types.Address) (exists bool, err error) {
 	err = db.db.QueryRow("SELECT EXISTS (SELECT 1 FROM accounts WHERE address = ?)", address).Scan(&exists)
 	return exists, err
+}
+
+func (db *Database) GetAccountLastSynced(address types.Address) (uint64, error) {
+	var result uint64
+
+	query := "SELECT clock FROM accounts WHERE address = ?"
+
+	err := db.db.QueryRow(query, address).Scan(&result)
+	if err != nil {
+		return 0, err
+	}
+
+	return result, nil
+}
+
+func (db *Database) SetAccountLastSynced(address types.Address, clock uint64) error {
+	query := "UPDATE accounts SET clock = ? WHERE address = ? AND clock < ?"
+
+	_, err := db.db.Exec(query, address, clock)
+	return err
 }

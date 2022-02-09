@@ -269,9 +269,7 @@ func (m *StatusMessage) HandleApplication() error {
 		return m.unmarshalProtobufData(new(protobuf.SyncClearHistory))
 	case protobuf.ApplicationMetadataMessage_SYNC_SETTING:
 		return m.unmarshalProtobufData(new(protobuf.SyncSetting))
-	case protobuf.ApplicationMetadataMessage_SYNC_WALLET_ACCOUNT_SEND:
-		return m.unmarshalProtobufData(new(protobuf.SyncWalletAccount))
-	case protobuf.ApplicationMetadataMessage_SYNC_WALLET_ACCOUNT_RECEIVE:
+	case protobuf.ApplicationMetadataMessage_SYNC_WALLET_ACCOUNT:
 		return m.unmarshalProtobufData(new(protobuf.SyncWalletAccount))
 	}
 	return nil
