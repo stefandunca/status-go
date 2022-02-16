@@ -1606,6 +1606,7 @@ func (m *Messenger) updateUnviewedCounts(chat *Chat, mentioned bool) {
 }
 
 func (m *Messenger) HandleSyncWalletAccount(message protobuf.SyncWalletAccount) error {
+	logger := m.logger.Named("HandleSyncWalletAccount")
 
 	acc := accounts.Account{
 		Address:   types.BytesToAddress(message.Address),
@@ -1621,8 +1622,8 @@ func (m *Messenger) HandleSyncWalletAccount(message protobuf.SyncWalletAccount) 
 	}
 
 	clock, err := m.settings.GetAccountLastSynced(acc.Address)
-
 	if err != nil {
+		logger.Error("m.settings.GetAccountLastSynced", zap.Error(err))
 		return err
 	}
 
@@ -1631,10 +1632,14 @@ func (m *Messenger) HandleSyncWalletAccount(message protobuf.SyncWalletAccount) 
 	}
 
 	err = m.settings.SaveAccounts([]accounts.Account{acc})
-
 	if err != nil {
+		logger.Error("m.settings.SaveAccounts", zap.Error(err))
 		return err
 	}
 
-	return m.settings.SetAccountLastSynced(acc.Address, message.Clock)
+	err = m.settings.SetAccountLastSynced(acc.Address, message.Clock)
+	if err != nil {
+		logger.Error("m.settings.SetAccountLastSynced", zap.Error(err))
+	}
+	return err
 }
