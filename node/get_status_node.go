@@ -45,6 +45,7 @@ import (
 	"github.com/status-im/status-go/services/status"
 	"github.com/status-im/status-go/services/stickers"
 	"github.com/status-im/status-go/services/subscriptions"
+	"github.com/status-im/status-go/services/updates"
 	"github.com/status-im/status-go/services/wakuext"
 	"github.com/status-im/status-go/services/wakuv2ext"
 	"github.com/status-im/status-go/services/wallet"
@@ -117,6 +118,7 @@ type StatusNode struct {
 	gifSrvc                *gif.Service
 	stickersSrvc           *stickers.Service
 	chatSrvc               *chat.Service
+	updatesSrvc            *updates.Service
 }
 
 // New makes new instance of StatusNode.

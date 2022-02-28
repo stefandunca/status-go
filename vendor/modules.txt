@@ -171,6 +171,8 @@ github.com/gorilla/websocket
 github.com/hashicorp/errwrap
 # github.com/hashicorp/go-multierror v1.0.0
 github.com/hashicorp/go-multierror
+# github.com/hashicorp/go-version v1.4.0
+github.com/hashicorp/go-version
 # github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
 github.com/hashicorp/golang-lru
 github.com/hashicorp/golang-lru/simplelru

@@ -54,6 +54,9 @@ const (
 
 	// EventMailserverChanged is triggered when switching the active mailserver
 	EventMailserverChanged = "mailserver.changed"
+
+	// EventUpdateAvailable is triggered after a update verification is performed
+	EventUpdateAvailable = "update.available"
 )
 
 // EnvelopeSignal includes hash of the envelope.
@@ -76,6 +79,11 @@ type HistoryMessagesSignal struct {
 	BatchIndex int    `json:"batchIndex"`
 	NumBatches int    `json:"numBatches,omitempty"`
 	ErrorMsg   string `json:"errorMessage,omitempty"`
+}
+
+type UpdateAvailableSignal struct {
+	Available bool   `json:"available"`
+	Version   string `json:"version"`
 }
 
 // DecryptMessageFailedSignal holds the sender of the message that could not be decrypted
@@ -148,6 +156,10 @@ func SendHistoricMessagesRequestFailed(requestID string, err error) {
 
 func SendHistoricMessagesRequestCompleted(requestID string) {
 	send(EventHistoryRequestCompleted, HistoryMessagesSignal{RequestID: requestID})
+}
+
+func SendUpdateAvailable(available bool, latestVersion string) {
+	send(EventUpdateAvailable, UpdateAvailableSignal{Available: available, Version: latestVersion})
 }
 
 // SendMailServerRequestCompleted triggered when mail server response has been received
