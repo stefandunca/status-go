@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hashicorp/go-version"
+	"go.uber.org/zap"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/status-im/status-go/services/ens"
 	"github.com/status-im/status-go/signal"
-	"go.uber.org/zap"
 )
 
 func NewAPI(ensService *ens.Service) *API {
