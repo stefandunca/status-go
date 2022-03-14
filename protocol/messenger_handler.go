@@ -18,6 +18,7 @@ import (
 	"github.com/status-im/status-go/protocol/encryption/multidevice"
 	"github.com/status-im/status-go/protocol/protobuf"
 	v1protocol "github.com/status-im/status-go/protocol/v1"
+	"github.com/status-im/status-go/protocol/verification"
 )
 
 const (
@@ -368,6 +369,13 @@ func (m *Messenger) HandleSyncInstallationContact(state *ReceivedMessageState, m
 		}
 		contact.LastUpdatedLocally = message.LastUpdatedLocally
 		contact.LocalNickname = message.LocalNickname
+		contact.TrustStatus = verification.TrustStatus(message.TrustStatus)
+		contact.VerificationStatus = VerificationStatus(message.VerificationStatus)
+
+		_, err := m.verificationDatabase.UpsertTrustStatus(contact.ID, contact.TrustStatus, message.LastUpdatedLocally)
+		if err != nil {
+			return err
+		}
 
 		if message.Blocked != contact.Blocked {
 			if message.Blocked {

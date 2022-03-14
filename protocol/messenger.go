@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/event"
 
 	"github.com/davecgh/go-spew/spew"
@@ -54,6 +55,7 @@ import (
 	"github.com/status-im/status-go/protocol/sqlite"
 	"github.com/status-im/status-go/protocol/transport"
 	v1protocol "github.com/status-im/status-go/protocol/v1"
+	"github.com/status-im/status-go/protocol/verification"
 	"github.com/status-im/status-go/server"
 	"github.com/status-im/status-go/services/ext/mailservers"
 	mailserversDB "github.com/status-im/status-go/services/mailservers"
@@ -95,6 +97,7 @@ type Messenger struct {
 	config                     *config
 	identity                   *ecdsa.PrivateKey
 	persistence                *sqlitePersistence
+	verificationDatabase       *verification.Persistence
 	transport                  *transport.Transport
 	encryptor                  *encryption.Protocol
 	sender                     *common.MessageSender
@@ -424,6 +427,7 @@ func NewMessenger(
 		multiAccounts:              c.multiAccount,
 		settings:                   settings,
 		peerStore:                  peerStore,
+		verificationDatabase:       verification.NewPersistence(database),
 		mailservers:                mailservers,
 		mailserverCycle: mailserverCycle{
 			peers:                     make(map[string]peerStatus),
@@ -2649,6 +2653,26 @@ func (m *Messenger) SyncDevices(ctx context.Context, ensName, photoPath string) 
 		}
 	}
 
+	trustedUsers, err := m.verificationDatabase.GetAllTrustStatus()
+	if err != nil {
+		return err
+	}
+	for id, ts := range trustedUsers {
+		if err = m.SyncTrustedUser(ctx, id, ts); err != nil {
+			return err
+		}
+	}
+
+	verificationRequests, err := m.verificationDatabase.GetVerificationRequests()
+	if err != nil {
+		return err
+	}
+	for i := range verificationRequests {
+		if err = m.SyncVerificationRequest(ctx, &verificationRequests[i]); err != nil {
+			return err
+		}
+	}
+
 	err = m.syncSettings()
 	if err != nil {
 		return err
@@ -2843,6 +2867,8 @@ func (m *Messenger) syncContact(ctx context.Context, contact *Contact) error {
 		Blocked:            contact.Blocked,
 		Muted:              muted,
 		Removed:            contact.Removed,
+		VerificationStatus: int64(contact.VerificationStatus),
+		TrustStatus:        int64(contact.TrustStatus),
 	}
 
 	encodedMessage, err := proto.Marshal(syncMessage)
@@ -2931,6 +2957,71 @@ func (m *Messenger) SyncBookmark(ctx context.Context, bookmark *browsers.Bookmar
 	return m.saveChat(chat)
 }
 
+func (m *Messenger) SyncTrustedUser(ctx context.Context, publicKey string, ts verification.TrustStatus) error {
+	if !m.hasPairedDevices() {
+		return nil
+	}
+
+	clock, chat := m.getLastClockWithRelatedChat()
+
+	syncMessage := &protobuf.SyncTrustedUser{
+		Clock:  clock,
+		Id:     publicKey,
+		Status: protobuf.SyncTrustedUser_TrustStatus(ts),
+	}
+	encodedMessage, err := proto.Marshal(syncMessage)
+	if err != nil {
+		return err
+	}
+
+	_, err = m.dispatchMessage(ctx, common.RawMessage{
+		LocalChatID:         chat.ID,
+		Payload:             encodedMessage,
+		MessageType:         protobuf.ApplicationMetadataMessage_SYNC_TRUSTED_USER,
+		ResendAutomatically: true,
+	})
+	if err != nil {
+		return err
+	}
+	chat.LastClockValue = clock
+	return m.saveChat(chat)
+}
+
+func (m *Messenger) SyncVerificationRequest(ctx context.Context, vr *verification.Request) error {
+	if !m.hasPairedDevices() {
+		return nil
+	}
+
+	clock, chat := m.getLastClockWithRelatedChat()
+
+	syncMessage := &protobuf.SyncVerificationRequest{
+		Clock:              clock,
+		From:               vr.From,
+		To:                 vr.To,
+		Challenge:          vr.Challenge,
+		Response:           vr.Response,
+		RequestedAt:        uint64(vr.RequestedAt.Unix()),
+		RepliedAt:          uint64(vr.RepliedAt.Unix()),
+		VerificationStatus: protobuf.SyncVerificationRequest_VerificationStatus(vr.RequestStatus),
+	}
+	encodedMessage, err := proto.Marshal(syncMessage)
+	if err != nil {
+		return err
+	}
+
+	_, err = m.dispatchMessage(ctx, common.RawMessage{
+		LocalChatID:         chat.ID,
+		Payload:             encodedMessage,
+		MessageType:         protobuf.ApplicationMetadataMessage_SYNC_VERIFICATION_REQUEST,
+		ResendAutomatically: true,
+	})
+	if err != nil {
+		return err
+	}
+	chat.LastClockValue = clock
+	return m.saveChat(chat)
+}
+
 // RetrieveAll retrieves messages from all filters, processes them and returns a
 // MessengerResponse to the client
 func (m *Messenger) RetrieveAll() (*MessengerResponse, error) {
@@ -2982,8 +3073,10 @@ type ReceivedMessageState struct {
 	// Response to the client
 	Response *MessengerResponse
 	// Timesource is a time source for clock values/timestamps.
-	Timesource   common.TimeSource
-	AllBookmarks map[string]*browsers.Bookmark
+	Timesource              common.TimeSource
+	AllBookmarks            map[string]*browsers.Bookmark
+	AllVerificationRequests []*verification.Request
+	AllTrustStatus          map[string]verification.TrustStatus
 }
 
 func (m *Messenger) markDeliveredMessages(acks [][]byte) {
@@ -3102,6 +3195,7 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 		Response:              response,
 		Timesource:            m.getTimesource(),
 		AllBookmarks:          make(map[string]*browsers.Bookmark),
+		AllTrustStatus:        make(map[string]verification.TrustStatus),
 	}
 
 	logger := m.logger.With(zap.String("site", "RetrieveAll"))
@@ -3323,6 +3417,36 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 						p := msg.ParsedMessage.Interface().(protobuf.SyncClearHistory)
 						logger.Debug("Handling SyncClearHistory", zap.Any("message", p))
 						err = m.handleSyncClearHistory(messageState, p)
+						if err != nil {
+							logger.Warn("failed to handle SyncClearHistory", zap.Error(err))
+							allMessagesProcessed = false
+							continue
+						}
+
+					case protobuf.SyncTrustedUser:
+						if !common.IsPubKeyEqual(messageState.CurrentMessageState.PublicKey, &m.identity.PublicKey) {
+							logger.Warn("not coming from us, ignoring")
+							continue
+						}
+
+						p := msg.ParsedMessage.Interface().(protobuf.SyncTrustedUser)
+						logger.Debug("Handling SyncTrustedUser", zap.Any("message", p))
+						err = m.handleSyncTrustedUser(messageState, p)
+						if err != nil {
+							logger.Warn("failed to handle SyncTrustedUser", zap.Error(err))
+							allMessagesProcessed = false
+							continue
+						}
+
+					case protobuf.SyncVerificationRequest:
+						if !common.IsPubKeyEqual(messageState.CurrentMessageState.PublicKey, &m.identity.PublicKey) {
+							logger.Warn("not coming from us, ignoring")
+							continue
+						}
+
+						p := msg.ParsedMessage.Interface().(protobuf.SyncVerificationRequest)
+						logger.Debug("Handling SyncVerificationRequest", zap.Any("message", p))
+						err = m.handleSyncVerificationRequest(messageState, p)
 						if err != nil {
 							logger.Warn("failed to handle SyncClearHistory", zap.Error(err))
 							allMessagesProcessed = false
@@ -3676,6 +3800,33 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 							}
 						}
 
+					case protobuf.RequestContactVerification:
+						logger.Debug("Handling RequestContactVerification")
+						err = m.HandleRequestContactVerification(messageState, msg.ParsedMessage.Interface().(protobuf.RequestContactVerification))
+						if err != nil {
+							logger.Warn("failed to handle RequestContactVerification", zap.Error(err))
+							allMessagesProcessed = false
+							continue
+						}
+
+					case protobuf.AcceptContactVerification:
+						logger.Debug("Handling AcceptContactVerification")
+						err = m.HandleAcceptContactVerification(messageState, msg.ParsedMessage.Interface().(protobuf.AcceptContactVerification))
+						if err != nil {
+							logger.Warn("failed to handle AcceptContactVerification", zap.Error(err))
+							allMessagesProcessed = false
+							continue
+						}
+
+					case protobuf.DeclineContactVerification:
+						logger.Debug("Handling DeclineContactVerification")
+						err = m.HandleDeclineContactVerification(messageState, msg.ParsedMessage.Interface().(protobuf.DeclineContactVerification))
+						if err != nil {
+							logger.Warn("failed to handle DeclineContactVerification", zap.Error(err))
+							allMessagesProcessed = false
+							continue
+						}
+
 					case protobuf.CommunityInvitation:
 						logger.Debug("Handling CommunityInvitation")
 						invitation := msg.ParsedMessage.Interface().(protobuf.CommunityInvitation)
@@ -3919,6 +4070,16 @@ func (m *Messenger) handleRetrievedMessages(chatWithMessages map[transport.Filte
 			return nil, err
 		}
 		messageState.Response.AddBookmarks(bookmarks)
+	}
+
+	if len(messageState.AllVerificationRequests) > 0 {
+		for _, vr := range messageState.AllVerificationRequests {
+			messageState.Response.AddVerificationRequest(vr)
+		}
+	}
+
+	if len(messageState.AllTrustStatus) > 0 {
+		messageState.Response.AddTrustStatuses(messageState.AllTrustStatus)
 	}
 
 	return messageState.Response, nil
@@ -5415,5 +5576,81 @@ func (m *Messenger) handleSyncClearHistory(state *ReceivedMessageState, message 
 		ClearedAt: message.ClearedAt,
 		ChatID:    chatID,
 	})
+	return nil
+}
+
+func (m *Messenger) handleSyncTrustedUser(state *ReceivedMessageState, message protobuf.SyncTrustedUser) error {
+	updated, err := m.verificationDatabase.UpsertTrustStatus(message.Id, verification.TrustStatus(message.Status), message.Clock)
+	if err != nil {
+		return err
+	}
+
+	if updated {
+		state.AllTrustStatus[message.Id] = verification.TrustStatus(message.Status)
+
+		contact, ok := m.allContacts.Load(message.Id)
+		if !ok {
+			m.logger.Info("contact not found")
+			return nil
+		}
+
+		contact.TrustStatus = verification.TrustStatus(message.Status)
+		m.allContacts.Store(contact.ID, contact)
+		state.ModifiedContacts.Store(contact.ID, true)
+	}
+
+	return nil
+}
+
+func ToVerificationRequest(message protobuf.SyncVerificationRequest) *verification.Request {
+	return &verification.Request{
+		From:          message.From,
+		To:            message.To,
+		Challenge:     message.Challenge,
+		Response:      message.Response,
+		RequestedAt:   time.Unix(int64(message.RequestedAt), 0),
+		RepliedAt:     time.Unix(int64(message.RepliedAt), 0),
+		RequestStatus: verification.RequestStatus(message.VerificationStatus),
+	}
+}
+
+func (m *Messenger) handleSyncVerificationRequest(state *ReceivedMessageState, message protobuf.SyncVerificationRequest) error {
+	verificationRequest := ToVerificationRequest(message)
+
+	shouldSync, err := m.verificationDatabase.UpsertVerificationRequest(verificationRequest)
+	if err != nil {
+		return err
+	}
+
+	myPubKey := hexutil.Encode(crypto.FromECDSAPub(&m.identity.PublicKey))
+
+	if !shouldSync {
+		return nil
+	}
+
+	state.AllVerificationRequests = append(state.AllVerificationRequests, verificationRequest)
+
+	if message.From == myPubKey { // Verification requests we sent
+		contact, ok := m.allContacts.Load(message.To)
+		if !ok {
+			m.logger.Info("contact not found")
+			return nil
+		}
+
+		contact.VerificationStatus = VerificationStatus(message.VerificationStatus)
+		if err := m.persistence.SaveContact(contact, nil); err != nil {
+			return err
+		}
+
+		m.allContacts.Store(contact.ID, contact)
+		state.ModifiedContacts.Store(contact.ID, true)
+
+		// TODO: create activity center notif
+
+	}
+	// else { // Verification requests we received
+	// // TODO: activity center notif
+	//}
+
 	return nil
 }

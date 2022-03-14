@@ -1,0 +1,252 @@
+package verification
+
+import (
+	"database/sql"
+	"errors"
+	"time"
+)
+
+type Persistence struct {
+	db *sql.DB
+}
+
+func NewPersistence(db *sql.DB) *Persistence {
+	return &Persistence{
+		db: db,
+	}
+}
+
+type RequestStatus int
+
+const (
+	RequestStatusUNKNOWN  RequestStatus = 0
+	RequestStatusPENDING  RequestStatus = 1
+	RequestStatusACCEPTED RequestStatus = 2
+	RequestStatusDECLINED RequestStatus = 3
+	RequestStatusCANCELED RequestStatus = 4
+)
+
+type TrustStatus int
+
+const (
+	TrustStatusUNKNOWN       TrustStatus = 0
+	TrustStatusTRUSTED       TrustStatus = 1
+	TrustStatusUNTRUSTWORTHY TrustStatus = 2
+)
+
+type Request struct {
+	From          string        `json:"from"`
+	To            string        `json:"to"`
+	Challenge     string        `json:"challenge"`
+	Response      string        `json:"response"`
+	RequestedAt   time.Time     `json:"requested_at"`
+	RequestStatus RequestStatus `json:"verification_status"`
+	RepliedAt     time.Time     `json:"replied_at"`
+}
+
+func (p *Persistence) GetVerificationRequests() ([]Request, error) {
+	rows, err := p.db.Query("SELECT from_user, to_user, challenge, response, requested_at, verification_status, replied_at FROM verification_requests")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []Request
+	for rows.Next() {
+		var vr Request
+		var requestedAt int64
+		var repliedAt int64
+		err = rows.Scan(&vr.From, &vr.To, &vr.Challenge, &vr.Response, &requestedAt, &repliedAt, &vr.RequestStatus)
+		if err != nil {
+			return nil, err
+		}
+
+		vr.RequestedAt = time.Unix(requestedAt, 0)
+		vr.RepliedAt = time.Unix(repliedAt, 0)
+		result = append(result, vr)
+	}
+	return result, nil
+}
+
+func (p *Persistence) GetVerificationRequestFrom(contactID string) (*Request, error) {
+	var vr Request
+	var requestedAt int64
+	var repliedAt int64
+
+	err := p.db.QueryRow(`SELECT from_user, to_user, challenge, response, requested_at, verification_status, replied_at FROM verification_requests WHERE from_user = ?`, contactID).Scan(
+		&vr.From,
+		&vr.To,
+		&vr.Challenge,
+		&vr.Response,
+		&requestedAt,
+		&vr.RequestStatus,
+		&repliedAt,
+	)
+
+	switch err {
+	case sql.ErrNoRows:
+		return nil, nil
+	case nil:
+		vr.RequestedAt = time.Unix(requestedAt, 0)
+		vr.RepliedAt = time.Unix(repliedAt, 0)
+		return &vr, nil
+	default:
+		return nil, err
+	}
+}
+
+func (p *Persistence) GetVerificationRequestSentTo(contactID string) (*Request, error) {
+	var vr Request
+	var requestedAt int64
+	var repliedAt int64
+
+	err := p.db.QueryRow(`SELECT from_user, to_user, challenge, response, requested_at, verification_status, replied_at FROM verification_requests WHERE to_user = ?`, contactID).Scan(
+		&vr.From,
+		&vr.To,
+		&vr.Challenge,
+		&vr.Response,
+		&requestedAt,
+		&vr.RequestStatus,
+		&repliedAt,
+	)
+
+	switch err {
+	case sql.ErrNoRows:
+		return nil, nil
+	case nil:
+		vr.RequestedAt = time.Unix(requestedAt, 0)
+		vr.RepliedAt = time.Unix(repliedAt, 0)
+		return &vr, nil
+	default:
+		return nil, err
+	}
+}
+
+func (p *Persistence) SaveVerificationRequest(vr *Request) error {
+	if vr == nil {
+		return errors.New("invalid verification request provided")
+	}
+	_, err := p.db.Exec(`INSERT INTO verification_requests (from_user, to_user, challenge, response, requested_at, verification_status, replied_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, vr.From, vr.To, vr.Challenge, vr.Response, vr.RequestedAt.Unix(), vr.RequestStatus, vr.RepliedAt.Unix())
+	return err
+}
+
+func (p *Persistence) AcceptContactVerificationRequest(contactID string, response string) error {
+	result, err := p.db.Exec("UPDATE verification_requests SET response = ?, replied_at = ?, verification_status = ? WHERE from_user = ?", response, time.Now().Unix(), RequestStatusACCEPTED, contactID)
+	if err != nil {
+		return err
+	}
+
+	numRows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if numRows == 0 {
+		return errors.New("verification request not found")
+	}
+
+	return nil
+}
+
+func (p *Persistence) DeclineContactVerificationRequest(contactID string) error {
+	result, err := p.db.Exec("UPDATE verification_requests SET response = '', replied_at = ?, verification_status = ? WHERE from_user = ?", time.Now().Unix(), RequestStatusDECLINED, contactID)
+	if err != nil {
+		return err
+	}
+
+	numRows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if numRows == 0 {
+		return errors.New("verification request not found")
+	}
+
+	return nil
+}
+
+func (p *Persistence) UpsertVerificationRequest(request *Request) (shouldSync bool, err error) {
+	var dbRequestedAt int64
+	var dbRepliedAt int64
+	err = p.db.QueryRow(`SELECT requested_at, replied_at FROM verification_requests WHERE from_user = ? AND to_user = ?`, request.From, request.To).Scan(&dbRequestedAt, &dbRepliedAt)
+	if err == sql.ErrNoRows {
+		return true, p.SaveVerificationRequest(request)
+	}
+
+	if err == nil && ((dbRequestedAt < request.RequestedAt.Unix()) || (dbRepliedAt < request.RepliedAt.Unix() && dbRepliedAt != 0)) {
+		_, err := p.db.Exec("UPDATE verification_requests SET challenge = ?, response = ?, requested_at = ?, replied_at = ?, verification_status = ? WHERE from_user = ? AND to_user = ?",
+			request.Challenge,
+			request.Response,
+			request.RequestedAt.Unix(),
+			request.RepliedAt.Unix(),
+			request.RequestStatus,
+			request.From,
+			request.To)
+		if err == nil {
+			shouldSync = true
+		}
+		return shouldSync, err
+	}
+
+	return false, err
+}
+
+func (p *Persistence) SetTrustStatus(contactID string, trust TrustStatus, updatedAt uint64) error {
+	_, err := p.db.Exec(`INSERT INTO trusted_users (id, trust_status, updated_at) VALUES (?, ?, ?)`, contactID, trust, updatedAt)
+	return err
+}
+
+func (p *Persistence) UpsertTrustStatus(contactID string, trust TrustStatus, updatedAt uint64) (shouldSync bool, err error) {
+	var t uint64
+	err = p.db.QueryRow(`SELECT updated_at FROM trusted_users WHERE id = ?`, contactID).Scan(&t)
+
+	if err == sql.ErrNoRows {
+		return true, p.SetTrustStatus(contactID, trust, updatedAt)
+	}
+
+	if err == nil && updatedAt > t {
+		_, err := p.db.Exec("UPDATE trusted_users SET trust_status = ?, updated_at = ? WHERE id = ?", trust, updatedAt, contactID)
+		if err != nil {
+			return true, err
+		}
+	}
+
+	return false, err
+}
+
+func (p *Persistence) GetTrustStatus(contactID string) (TrustStatus, error) {
+	var t TrustStatus
+	err := p.db.QueryRow(`SELECT trust_status FROM trusted_users WHERE id = ?`, contactID).Scan(&t)
+
+	switch err {
+	case sql.ErrNoRows:
+		return TrustStatusUNKNOWN, nil
+	case nil:
+		return t, nil
+	default:
+		return TrustStatusUNKNOWN, err
+	}
+}
+
+func (p *Persistence) GetAllTrustStatus() (map[string]TrustStatus, error) {
+	result := make(map[string]TrustStatus)
+	rows, err := p.db.Query("SELECT id, trust_status FROM trusted_users")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		var ts TrustStatus
+		err = rows.Scan(&id, &ts)
+		if err != nil {
+			return nil, err
+		}
+
+		result[id] = ts
+	}
+
+	return result, nil
+}
