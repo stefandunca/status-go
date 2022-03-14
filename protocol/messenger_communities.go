@@ -96,9 +96,18 @@ func (m *Messenger) handleCommunitiesHistoryArchivesSubscription(c chan *communi
 
 					m.config.messengerSignalsHandler.HistoryArchivesSeeding(sub.HistoryArchivesSeedingSignal.CommunityID)
 
-					err := m.dispatchMagnetlinkMessage(sub.HistoryArchivesSeedingSignal.CommunityID)
+					c, err := m.communitiesManager.GetByIDString(sub.HistoryArchivesSeedingSignal.CommunityID)
 					if err != nil {
-						m.logger.Debug("failed to dispatch magnetlink message", zap.Error(err))
+						m.logger.Debug("failed to get community by id string", zap.Error(err))
+						continue
+					}
+
+					if c.IsAdmin() {
+
+						err := m.dispatchMagnetlinkMessage(sub.HistoryArchivesSeedingSignal.CommunityID)
+						if err != nil {
+							m.logger.Debug("failed to dispatch magnetlink message", zap.Error(err))
+						}
 					}
 				}
 
