@@ -317,6 +317,8 @@ func (m *Messenger) HandleRequestContactVerification(state *ReceivedMessageState
 		return err
 	}
 
+	state.AllVerificationRequests = append(state.AllVerificationRequests, persistedVR)
+
 	// TODO: create or update activity center notification
 
 	return nil
