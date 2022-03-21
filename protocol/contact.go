@@ -59,9 +59,9 @@ func (c *Contact) CanonicalImage(profilePicturesVisibility settings.ProfilePictu
 type VerificationStatus int
 
 const (
-	VerificationStatusUNVERIFIED VerificationStatus = 0
-	VerificationStatusVERIFYING  VerificationStatus = 1
-	VerificationStatusVERIFIED   VerificationStatus = 2
+	VerificationStatusUNVERIFIED VerificationStatus = iota
+	VerificationStatusVERIFYING
+	VerificationStatusVERIFIED
 )
 
 // Contact has information about a "Contact"
@@ -99,8 +99,8 @@ type Contact struct {
 	IsSyncing bool
 	Removed   bool
 
-	VerificationStatus VerificationStatus
-	TrustStatus        verification.TrustStatus
+	VerificationStatus VerificationStatus       `json:"verificationStatus"`
+	TrustStatus        verification.TrustStatus `json:"trustStatus"`
 }
 
 func (c Contact) IsVerified() bool {

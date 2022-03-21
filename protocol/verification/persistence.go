@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+var (
+	ErrVerificationRequestNotFound = errors.New("verification request not found")
+)
+
 type Persistence struct {
 	db *sql.DB
 }
@@ -19,19 +23,19 @@ func NewPersistence(db *sql.DB) *Persistence {
 type RequestStatus int
 
 const (
-	RequestStatusUNKNOWN  RequestStatus = 0
-	RequestStatusPENDING  RequestStatus = 1
-	RequestStatusACCEPTED RequestStatus = 2
-	RequestStatusDECLINED RequestStatus = 3
-	RequestStatusCANCELED RequestStatus = 4
+	RequestStatusUNKNOWN RequestStatus = iota
+	RequestStatusPENDING
+	RequestStatusACCEPTED
+	RequestStatusDECLINED
+	RequestStatusCANCELED
 )
 
 type TrustStatus int
 
 const (
-	TrustStatusUNKNOWN       TrustStatus = 0
-	TrustStatusTRUSTED       TrustStatus = 1
-	TrustStatusUNTRUSTWORTHY TrustStatus = 2
+	TrustStatusUNKNOWN TrustStatus = iota
+	TrustStatusTRUSTED
+	TrustStatusUNTRUSTWORTHY
 )
 
 type Request struct {
@@ -142,7 +146,7 @@ func (p *Persistence) AcceptContactVerificationRequest(contactID string, respons
 	}
 
 	if numRows == 0 {
-		return errors.New("verification request not found")
+		return ErrVerificationRequestNotFound
 	}
 
 	return nil
@@ -160,7 +164,7 @@ func (p *Persistence) DeclineContactVerificationRequest(contactID string) error 
 	}
 
 	if numRows == 0 {
-		return errors.New("verification request not found")
+		return ErrVerificationRequestNotFound
 	}
 
 	return nil
