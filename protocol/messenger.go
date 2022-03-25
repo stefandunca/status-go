@@ -128,7 +128,6 @@ type Messenger struct {
 	requestedCommunities       map[string]*transport.Filter
 	connectionState            connection.State
 	telemetryClient            *telemetry.Client
-	accountFeed                *event.Feed
 	// TODO(samyoul) Determine if/how the remaining usage of this mutex can be removed
 	mutex          sync.Mutex
 	mailPeersMutex sync.Mutex
