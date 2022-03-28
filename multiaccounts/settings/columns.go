@@ -40,7 +40,6 @@ var (
 		dBColumnName:   "currency",
 		// TODO resolve issue 6 https://github.com/status-im/status-react/pull/13053#issuecomment-1065179963
 		syncProtobufFactory: &SyncProtobufFactory{
-			inactive:          true, // Remove after issue is resolved
 			fromInterface:     currencyProtobufFactory,
 			fromStruct:        currencyProtobufFactoryStruct,
 			valueFromProtobuf: StringFromSyncProtobuf,
