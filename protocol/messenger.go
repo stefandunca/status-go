@@ -579,6 +579,13 @@ func (m *Messenger) Start() (*MessengerResponse, error) {
 		}
 	}
 
+	if m.httpServer != nil {
+		err := m.httpServer.Start()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Start push notification client
 	if m.pushNotificationClient != nil {
 		m.handlePushNotificationClientRegistrations(m.pushNotificationClient.SubscribeToRegistrations())
@@ -649,13 +656,6 @@ func (m *Messenger) Start() (*MessengerResponse, error) {
 	err = m.StartMailserverCycle()
 	if err != nil {
 		return nil, err
-	}
-
-	if m.httpServer != nil {
-		err = m.httpServer.Start()
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return response, nil
