@@ -2653,7 +2653,6 @@ func (m *Messenger) syncWallets() error {
 		return err
 	}
 
-	m.logger.Debug("### ", zap.Any("len", len(localAccounts)))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, acc := range localAccounts {
@@ -2680,8 +2679,6 @@ func (m *Messenger) syncWallets() error {
 		if err != nil {
 			return err
 		}
-
-		m.logger.Debug("### send acc", zap.Any("name", acc.Name))
 
 		err = m.sendToPairedDevices(ctx, common.RawMessage{
 			Payload:             encodedMessage,

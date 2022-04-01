@@ -1622,7 +1622,6 @@ func (m *Messenger) HandleSyncWalletAccount(message protobuf.SyncWalletAccount) 
 		Name:      message.Name,
 	}
 
-	logger.Info("### HandleSyncWallet", zap.Any("name", acc.Name))
 	clock, err := m.settings.GetAccountLastSynced(acc.Address)
 	if err != nil {
 		logger.Error("m.settings.GetAccountLastSynced", zap.Error(err))
