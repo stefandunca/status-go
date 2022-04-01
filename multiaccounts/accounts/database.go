@@ -3,6 +3,7 @@ package accounts
 import (
 	"database/sql"
 
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/status-im/status-go/eth-node/types"
 	"github.com/status-im/status-go/multiaccounts/errors"
 	"github.com/status-im/status-go/multiaccounts/settings"
@@ -44,7 +45,8 @@ func (a *Account) IsOwnAccount() bool {
 // Database sql wrapper for operations with browser objects.
 type Database struct {
 	*settings.Database
-	db *sql.DB
+	db                   *sql.DB
+	accountSubscriptions []chan struct{}
 }
 
 // NewDB returns a new instance of *Database
@@ -54,7 +56,7 @@ func NewDB(db *sql.DB) (*Database, error) {
 		return nil, err
 	}
 
-	return &Database{sDB, db}, nil
+	return &Database{sDB, db, nil}, nil
 }
 
 // DB Gets db sql.DB
@@ -152,9 +154,27 @@ func (db *Database) SaveAccounts(accounts []Account) (err error) {
 			return
 		}
 	}
+
+	db.publishOnAccountSubscriptions()
 	return
 }
 
+func (db *Database) SubscribeToAccountChanges() chan struct{} {
+	s := make(chan struct{}, 100)
+	db.accountSubscriptions = append(db.accountSubscriptions, s)
+	return s
+}
+
+func (db *Database) publishOnAccountSubscriptions() {
+	// Publish on channels, drop if buffer is full
+	for _, s := range db.accountSubscriptions {
+		select {
+		case s <- struct{}{}:
+		default:
+			log.Warn("subscription channel full, dropping message")
+		}
+	}
+}
 func (db *Database) DeleteAccount(address types.Address) error {
 	_, err := db.db.Exec("DELETE FROM accounts WHERE address = ?", address)
 	return err

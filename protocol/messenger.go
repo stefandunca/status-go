@@ -632,6 +632,7 @@ func (m *Messenger) Start() (*MessengerResponse, error) {
 	m.watchConnectionChange()
 	m.watchExpiredMessages()
 	m.watchIdentityImageChanges()
+	m.watchAccountListChanges()
 	m.broadcastLatestUserStatus()
 	m.startBackupLoop()
 	err = m.startAutoMessageLoop()
@@ -2617,55 +2618,50 @@ func (m *Messenger) SyncDevices(ctx context.Context, ensName, photoPath string) 
 		return err
 	}
 
-	return m.syncWallets(ctx)
+	return m.syncWallets()
 }
 
 // TODO: Implement a watchAccountListChanges method which checks for account changes and publishes to the account feed when it happens
-func (m *Messenger) watchAccountListChanges(ctx context.Context, accountFeed *event.Feed, initial []gethcommon.Address, accountsDB *accounts.Database) {
-	// accounts := make(chan []accounts.Account, 1)
-	// sub := accountFeed.Subscribe(accounts)
-	// defer sub.Unsubscribe()
-	// listen := make(map[gethcommon.Address]struct{}, len(initial))
-	// for _, address := range initial {
-	// 	listen[address] = struct{}{}
-	// }
-	// for {
-	// 	select {
-	// 	case <-ctx.Done():
-	// 		return
-	// 	case err := <-sub.Err():
-	// 		if err != nil {
-	// 			log.Error("accounts watcher subscription failed", "error", err)
-	// 		}
-	// 	case n := <-accounts:
-	// 		log.Debug("wallet received updated list of accounts", "accounts", n)
-	// 		restart := false
-	// 		for _, acc := range n {
-	// 			_, exist := listen[gethcommon.Address(acc.Address)]
-	// 			if !exist {
-	// 				accountsDB.SaveAccounts(n) //TODO: handle only one account instead of a list of accounts.
-	// 				restart = true
-	// 			}
-	// 		}
-	// 		if !restart {
-	// 			continue
-	// 		}
-	// 	}
-	// }
+func (m *Messenger) watchAccountListChanges() {
+
+	m.logger.Debug("watching account changes")
+	if m.multiAccounts == nil {
+		return
+	}
+
+	channel := m.settings.SubscribeToAccountChanges()
+
+	go func() {
+		for {
+			select {
+			case <-channel:
+				err := m.syncWallets()
+				if err != nil {
+					m.logger.Error("failed to sync wallet accounts to paired devices", zap.Error(err))
+				}
+			case <-m.quit:
+				return
+			}
+		}
+	}()
 }
 
 // syncWallets syncs all wallets with paired devices
-func (m *Messenger) syncWallets(ctx context.Context) error {
+func (m *Messenger) syncWallets() error {
 	localAccounts, err := m.settings.GetAccounts()
 	if err != nil {
 		return err
 	}
 
+	m.logger.Debug("### ", zap.Any("len", len(localAccounts)))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	for _, acc := range localAccounts {
 		// Only sync watch type accounts
 		if acc.Type != accounts.AccountTypeWatch {
 			continue
 		}
+
 		syncMessage := &protobuf.SyncWalletAccount{
 			Clock:     m.getTimesource().GetCurrentTime(),
 			Address:   acc.Address.Bytes(),
@@ -2684,6 +2680,8 @@ func (m *Messenger) syncWallets(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
+		m.logger.Debug("### send acc", zap.Any("name", acc.Name))
 
 		err = m.sendToPairedDevices(ctx, common.RawMessage{
 			Payload:             encodedMessage,
