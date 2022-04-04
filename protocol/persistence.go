@@ -730,11 +730,12 @@ func (db sqlitePersistence) SaveContact(contact *Contact, tx *sql.Tx) (err error
 			added,
 			blocked,
 			removed,
+			verification_status,
 			has_added_us,
 			name,
 			photo,
 			tribute_to_talk
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return
@@ -753,6 +754,7 @@ func (db sqlitePersistence) SaveContact(contact *Contact, tx *sql.Tx) (err error
 		contact.Added,
 		contact.Blocked,
 		contact.Removed,
+		contact.VerificationStatus,
 		contact.HasAddedUs,
 		//TODO we need to drop these columns
 		"",

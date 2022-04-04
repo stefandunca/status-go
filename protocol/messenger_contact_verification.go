@@ -3,7 +3,6 @@ package protocol
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -44,6 +43,16 @@ func (m *Messenger) SendContactVerificationRequest(ctx context.Context, contactI
 		return errors.New("verification request already sent")
 	}
 
+	if verifRequest == nil {
+		verifRequest = &verification.Request{
+			From:          common.PubkeyToHex(&m.identity.PublicKey),
+			To:            contact.ID,
+			Challenge:     challenge,
+			RequestStatus: verification.RequestStatusPENDING,
+			RepliedAt:     0,
+		}
+	}
+
 	chat, ok := m.allChats.Load(contactID)
 	if !ok {
 		publicKey, err := contact.PublicKey()
@@ -69,7 +78,7 @@ func (m *Messenger) SendContactVerificationRequest(ctx context.Context, contactI
 	}
 
 	_, err = m.dispatchMessage(ctx, common.RawMessage{
-		LocalChatID:         chatID,
+		LocalChatID:         chat.ID,
 		Payload:             encodedMessage,
 		MessageType:         protobuf.ApplicationMetadataMessage_REQUEST_CONTACT_VERIFICATION,
 		ResendAutomatically: true,
@@ -95,7 +104,32 @@ func (m *Messenger) SendContactVerificationRequest(ctx context.Context, contactI
 
 	m.allContacts.Store(contact.ID, contact)
 
-	return nil
+	verifRequest.RequestedAt = clock
+
+	err = m.verificationDatabase.SaveVerificationRequest(verifRequest)
+	if err != nil {
+		return err
+	}
+
+	return m.SyncVerificationRequest(context.Background(), verifRequest)
+}
+
+func (m *Messenger) GetVerificationRequestSentTo(ctx context.Context, contactID string) (*verification.Request, error) {
+	_, ok := m.allContacts.Load(contactID)
+	if !ok {
+		return nil, errors.New("contact not found")
+	}
+
+	return m.verificationDatabase.GetVerificationRequestSentTo(contactID)
+}
+
+func (m *Messenger) GetVerificationRequestFrom(ctx context.Context, contactID string) (*verification.Request, error) {
+	_, ok := m.allContacts.Load(contactID)
+	if !ok {
+		return nil, errors.New("contact not found")
+	}
+
+	return m.verificationDatabase.GetVerificationRequestFrom(contactID)
 }
 
 func (m *Messenger) CancelVerificationRequest(ctx context.Context, contactID string) error {
@@ -104,7 +138,7 @@ func (m *Messenger) CancelVerificationRequest(ctx context.Context, contactID str
 		return errors.New("must be a mutual contact")
 	}
 
-	verifRequest, err := m.verificationDatabase.GetVerificationRequestFrom(contactID)
+	verifRequest, err := m.verificationDatabase.GetVerificationRequestSentTo(contactID)
 	if err != nil {
 		return err
 	}
@@ -132,6 +166,11 @@ func (m *Messenger) CancelVerificationRequest(ctx context.Context, contactID str
 
 	// We sync the contact with the other devices
 	err = m.syncContact(context.Background(), contact)
+	if err != nil {
+		return err
+	}
+
+	err = m.SyncVerificationRequest(context.Background(), verifRequest)
 	if err != nil {
 		return err
 	}
@@ -181,7 +220,7 @@ func (m *Messenger) AcceptContactVerificationRequest(ctx context.Context, contac
 	}
 
 	_, err = m.dispatchMessage(ctx, common.RawMessage{
-		LocalChatID:         chatID,
+		LocalChatID:         chat.ID,
 		Payload:             encodedMessage,
 		MessageType:         protobuf.ApplicationMetadataMessage_ACCEPT_CONTACT_VERIFICATION,
 		ResendAutomatically: true,
@@ -192,6 +231,72 @@ func (m *Messenger) AcceptContactVerificationRequest(ctx context.Context, contac
 	}
 
 	return m.verificationDatabase.AcceptContactVerificationRequest(contactID, response)
+
+	// TODO: SYNC VERIF
+}
+
+func (m *Messenger) VerifiedTrusted(ctx context.Context, contactID string) error {
+	contact, ok := m.allContacts.Load(contactID)
+	if !ok || !contact.Added || !contact.HasAddedUs {
+		return errors.New("must be a mutual contact")
+	}
+
+	err := m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusTRUSTED, m.getTimesource().GetCurrentTime())
+	if err != nil {
+		return err
+	}
+
+	err = m.SyncTrustedUser(context.Background(), contactID, verification.TrustStatusTRUSTED)
+	if err != nil {
+		return err
+	}
+
+	contact.VerificationStatus = VerificationStatusVERIFIED
+	contact.LastUpdatedLocally = m.getTimesource().GetCurrentTime()
+	err = m.persistence.SaveContact(contact, nil)
+	if err != nil {
+		return err
+	}
+
+	// We sync the contact with the other devices
+	err = m.syncContact(context.Background(), contact)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Messenger) VerifiedUntrustworthy(ctx context.Context, contactID string) error {
+	contact, ok := m.allContacts.Load(contactID)
+	if !ok || !contact.Added || !contact.HasAddedUs {
+		return errors.New("must be a mutual contact")
+	}
+
+	err := m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusUNTRUSTWORTHY, m.getTimesource().GetCurrentTime())
+	if err != nil {
+		return err
+	}
+
+	err = m.SyncTrustedUser(context.Background(), contactID, verification.TrustStatusUNTRUSTWORTHY)
+	if err != nil {
+		return err
+	}
+
+	contact.VerificationStatus = VerificationStatusVERIFIED
+	contact.LastUpdatedLocally = m.getTimesource().GetCurrentTime()
+	err = m.persistence.SaveContact(contact, nil)
+	if err != nil {
+		return err
+	}
+
+	// We sync the contact with the other devices
+	err = m.syncContact(context.Background(), contact)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (m *Messenger) DeclineContactVerificationRequest(ctx context.Context, contactID string) error {
@@ -233,7 +338,7 @@ func (m *Messenger) DeclineContactVerificationRequest(ctx context.Context, conta
 	}
 
 	_, err = m.dispatchMessage(ctx, common.RawMessage{
-		LocalChatID:         chatID,
+		LocalChatID:         chat.ID,
 		Payload:             encodedMessage,
 		MessageType:         protobuf.ApplicationMetadataMessage_DECLINE_CONTACT_VERIFICATION,
 		ResendAutomatically: true,
@@ -243,19 +348,36 @@ func (m *Messenger) DeclineContactVerificationRequest(ctx context.Context, conta
 		return err
 	}
 
+	// TODO: SYNC VERIF
+
 	return m.verificationDatabase.DeclineContactVerificationRequest(contactID)
 }
 
-func (m *Messenger) MarkAsTrusted(contactID string) error {
-	return m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusTRUSTED, m.getTimesource().GetCurrentTime())
+func (m *Messenger) MarkAsTrusted(ctx context.Context, contactID string) error {
+	err := m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusTRUSTED, m.getTimesource().GetCurrentTime())
+	if err != nil {
+		return err
+	}
+
+	return m.SyncTrustedUser(ctx, contactID, verification.TrustStatusTRUSTED)
 }
 
-func (m *Messenger) MarkAsUntrustworthy(contactID string) error {
-	return m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusUNTRUSTWORTHY, m.getTimesource().GetCurrentTime())
+func (m *Messenger) MarkAsUntrustworthy(ctx context.Context, contactID string) error {
+	err := m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusUNTRUSTWORTHY, m.getTimesource().GetCurrentTime())
+	if err != nil {
+		return err
+	}
+
+	return m.SyncTrustedUser(ctx, contactID, verification.TrustStatusUNTRUSTWORTHY)
 }
 
-func (m *Messenger) RemoveTrustStatus(contactID string) error {
-	return m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusUNKNOWN, m.getTimesource().GetCurrentTime())
+func (m *Messenger) RemoveTrustStatus(ctx context.Context, contactID string) error {
+	err := m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusUNKNOWN, m.getTimesource().GetCurrentTime())
+	if err != nil {
+		return err
+	}
+
+	return m.SyncTrustedUser(ctx, contactID, verification.TrustStatusUNKNOWN)
 }
 
 func (m *Messenger) GetTrustStatus(contactID string) (verification.TrustStatus, error) {
@@ -296,7 +418,7 @@ func (m *Messenger) HandleRequestContactVerification(state *ReceivedMessageState
 		return err
 	}
 
-	if persistedVR != nil && uint64(persistedVR.RequestedAt.Unix()) > request.Clock {
+	if persistedVR != nil && persistedVR.RequestedAt > request.Clock {
 		return nil // older message, ignore it
 	}
 
@@ -309,11 +431,16 @@ func (m *Messenger) HandleRequestContactVerification(state *ReceivedMessageState
 	}
 
 	persistedVR.Challenge = request.Challenge
-	persistedVR.RequestedAt = time.Unix(int64(request.Clock), 0)
+	persistedVR.RequestedAt = request.Clock
 
 	err = m.verificationDatabase.SaveVerificationRequest(persistedVR)
 	if err != nil {
 		m.logger.Debug("Error storing verification request", zap.Error(err))
+		return err
+	}
+
+	err = m.SyncVerificationRequest(context.Background(), persistedVR)
+	if err != nil {
 		return err
 	}
 
@@ -358,7 +485,7 @@ func (m *Messenger) HandleAcceptContactVerification(state *ReceivedMessageState,
 		return err
 	}
 
-	if persistedVR != nil && uint64(persistedVR.RepliedAt.Unix()) > request.Clock {
+	if persistedVR != nil && persistedVR.RepliedAt > request.Clock {
 		return nil // older message, ignore it
 	}
 
@@ -366,19 +493,16 @@ func (m *Messenger) HandleAcceptContactVerification(state *ReceivedMessageState,
 		return nil // Do nothing, We have already cancelled the verification request
 	}
 
-	vrExisted := false
 	if persistedVR == nil {
 		// This is a response for which we have not received its request before
 		persistedVR = &verification.Request{}
 		persistedVR.From = contactID
 		persistedVR.To = myPubKey
-	} else {
-		vrExisted = true
 	}
 
 	persistedVR.RequestStatus = verification.RequestStatusACCEPTED
 	persistedVR.Response = request.Response
-	persistedVR.RepliedAt = time.Unix(int64(request.Clock), 0)
+	persistedVR.RepliedAt = request.Clock
 
 	err = m.verificationDatabase.SaveVerificationRequest(persistedVR)
 	if err != nil {
@@ -386,22 +510,9 @@ func (m *Messenger) HandleAcceptContactVerification(state *ReceivedMessageState,
 		return err
 	}
 
-	if vrExisted {
-		contact.VerificationStatus = VerificationStatusVERIFIED
-		contact.LastUpdatedLocally = m.getTimesource().GetCurrentTime()
-		err = m.persistence.SaveContact(contact, nil)
-		if err != nil {
-			return err
-		}
-
-		// We sync the contact with the other devices
-		err = m.syncContact(context.Background(), contact)
-		if err != nil {
-			return err
-		}
-
-		state.ModifiedContacts.Store(contact.ID, true)
-		state.AllContacts.Store(contact.ID, contact)
+	err = m.SyncVerificationRequest(context.Background(), persistedVR)
+	if err != nil {
+		return err
 	}
 
 	state.AllVerificationRequests = append(state.AllVerificationRequests, persistedVR)
@@ -431,7 +542,7 @@ func (m *Messenger) HandleDeclineContactVerification(state *ReceivedMessageState
 		return err
 	}
 
-	if persistedVR != nil && uint64(persistedVR.RepliedAt.Unix()) > request.Clock {
+	if persistedVR != nil && persistedVR.RepliedAt > request.Clock {
 		return nil // older message, ignore it
 	}
 
@@ -439,18 +550,15 @@ func (m *Messenger) HandleDeclineContactVerification(state *ReceivedMessageState
 		return nil // Do nothing, We have already cancelled the verification request
 	}
 
-	vrExisted := false
 	if persistedVR == nil {
 		// This is a response for which we have not received its request before
 		persistedVR = &verification.Request{}
 		persistedVR.From = contactID
 		persistedVR.To = myPubKey
-	} else {
-		vrExisted = true
 	}
 
 	persistedVR.RequestStatus = verification.RequestStatusDECLINED
-	persistedVR.RepliedAt = time.Unix(int64(request.Clock), 0)
+	persistedVR.RepliedAt = request.Clock
 
 	err = m.verificationDatabase.SaveVerificationRequest(persistedVR)
 	if err != nil {
@@ -458,22 +566,9 @@ func (m *Messenger) HandleDeclineContactVerification(state *ReceivedMessageState
 		return err
 	}
 
-	if vrExisted {
-		contact.VerificationStatus = VerificationStatusVERIFIED
-		contact.LastUpdatedLocally = m.getTimesource().GetCurrentTime()
-		err = m.persistence.SaveContact(contact, nil)
-		if err != nil {
-			return err
-		}
-
-		// We sync the contact with the other devices
-		err = m.syncContact(context.Background(), contact)
-		if err != nil {
-			return err
-		}
-
-		state.ModifiedContacts.Store(contact.ID, true)
-		state.AllContacts.Store(contact.ID, contact)
+	err = m.SyncVerificationRequest(context.Background(), persistedVR)
+	if err != nil {
+		return err
 	}
 
 	state.AllVerificationRequests = append(state.AllVerificationRequests, persistedVR)

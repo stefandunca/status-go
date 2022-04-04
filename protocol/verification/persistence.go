@@ -43,9 +43,9 @@ type Request struct {
 	To            string        `json:"to"`
 	Challenge     string        `json:"challenge"`
 	Response      string        `json:"response"`
-	RequestedAt   time.Time     `json:"requested_at"`
+	RequestedAt   uint64        `json:"requested_at"`
 	RequestStatus RequestStatus `json:"verification_status"`
-	RepliedAt     time.Time     `json:"replied_at"`
+	RepliedAt     uint64        `json:"replied_at"`
 }
 
 func (p *Persistence) GetVerificationRequests() ([]Request, error) {
@@ -58,15 +58,10 @@ func (p *Persistence) GetVerificationRequests() ([]Request, error) {
 	var result []Request
 	for rows.Next() {
 		var vr Request
-		var requestedAt int64
-		var repliedAt int64
-		err = rows.Scan(&vr.From, &vr.To, &vr.Challenge, &vr.Response, &requestedAt, &repliedAt, &vr.RequestStatus)
+		err = rows.Scan(&vr.From, &vr.To, &vr.Challenge, &vr.Response, &vr.RequestedAt, &vr.RepliedAt, &vr.RequestStatus)
 		if err != nil {
 			return nil, err
 		}
-
-		vr.RequestedAt = time.Unix(requestedAt, 0)
-		vr.RepliedAt = time.Unix(repliedAt, 0)
 		result = append(result, vr)
 	}
 	return result, nil
@@ -74,25 +69,20 @@ func (p *Persistence) GetVerificationRequests() ([]Request, error) {
 
 func (p *Persistence) GetVerificationRequestFrom(contactID string) (*Request, error) {
 	var vr Request
-	var requestedAt int64
-	var repliedAt int64
-
 	err := p.db.QueryRow(`SELECT from_user, to_user, challenge, response, requested_at, verification_status, replied_at FROM verification_requests WHERE from_user = ?`, contactID).Scan(
 		&vr.From,
 		&vr.To,
 		&vr.Challenge,
 		&vr.Response,
-		&requestedAt,
+		&vr.RequestedAt,
 		&vr.RequestStatus,
-		&repliedAt,
+		&vr.RepliedAt,
 	)
 
 	switch err {
 	case sql.ErrNoRows:
 		return nil, nil
 	case nil:
-		vr.RequestedAt = time.Unix(requestedAt, 0)
-		vr.RepliedAt = time.Unix(repliedAt, 0)
 		return &vr, nil
 	default:
 		return nil, err
@@ -101,25 +91,20 @@ func (p *Persistence) GetVerificationRequestFrom(contactID string) (*Request, er
 
 func (p *Persistence) GetVerificationRequestSentTo(contactID string) (*Request, error) {
 	var vr Request
-	var requestedAt int64
-	var repliedAt int64
-
 	err := p.db.QueryRow(`SELECT from_user, to_user, challenge, response, requested_at, verification_status, replied_at FROM verification_requests WHERE to_user = ?`, contactID).Scan(
 		&vr.From,
 		&vr.To,
 		&vr.Challenge,
 		&vr.Response,
-		&requestedAt,
+		&vr.RequestedAt,
 		&vr.RequestStatus,
-		&repliedAt,
+		&vr.RepliedAt,
 	)
 
 	switch err {
 	case sql.ErrNoRows:
 		return nil, nil
 	case nil:
-		vr.RequestedAt = time.Unix(requestedAt, 0)
-		vr.RepliedAt = time.Unix(repliedAt, 0)
 		return &vr, nil
 	default:
 		return nil, err
@@ -130,7 +115,7 @@ func (p *Persistence) SaveVerificationRequest(vr *Request) error {
 	if vr == nil {
 		return errors.New("invalid verification request provided")
 	}
-	_, err := p.db.Exec(`INSERT INTO verification_requests (from_user, to_user, challenge, response, requested_at, verification_status, replied_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, vr.From, vr.To, vr.Challenge, vr.Response, vr.RequestedAt.Unix(), vr.RequestStatus, vr.RepliedAt.Unix())
+	_, err := p.db.Exec(`INSERT INTO verification_requests (from_user, to_user, challenge, response, requested_at, verification_status, replied_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, vr.From, vr.To, vr.Challenge, vr.Response, vr.RequestedAt, vr.RequestStatus, vr.RepliedAt)
 	return err
 }
 
@@ -171,19 +156,19 @@ func (p *Persistence) DeclineContactVerificationRequest(contactID string) error 
 }
 
 func (p *Persistence) UpsertVerificationRequest(request *Request) (shouldSync bool, err error) {
-	var dbRequestedAt int64
-	var dbRepliedAt int64
+	var dbRequestedAt uint64
+	var dbRepliedAt uint64
 	err = p.db.QueryRow(`SELECT requested_at, replied_at FROM verification_requests WHERE from_user = ? AND to_user = ?`, request.From, request.To).Scan(&dbRequestedAt, &dbRepliedAt)
 	if err == sql.ErrNoRows {
 		return true, p.SaveVerificationRequest(request)
 	}
 
-	if err == nil && ((dbRequestedAt < request.RequestedAt.Unix()) || (dbRepliedAt < request.RepliedAt.Unix() && dbRepliedAt != 0)) {
+	if err == nil && ((dbRequestedAt < request.RequestedAt) || (dbRepliedAt < request.RepliedAt && dbRepliedAt != 0)) {
 		_, err := p.db.Exec("UPDATE verification_requests SET challenge = ?, response = ?, requested_at = ?, replied_at = ?, verification_status = ? WHERE from_user = ? AND to_user = ?",
 			request.Challenge,
 			request.Response,
-			request.RequestedAt.Unix(),
-			request.RepliedAt.Unix(),
+			request.RequestedAt,
+			request.RepliedAt,
 			request.RequestStatus,
 			request.From,
 			request.To)

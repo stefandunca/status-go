@@ -3000,8 +3000,8 @@ func (m *Messenger) SyncVerificationRequest(ctx context.Context, vr *verificatio
 		To:                 vr.To,
 		Challenge:          vr.Challenge,
 		Response:           vr.Response,
-		RequestedAt:        uint64(vr.RequestedAt.Unix()),
-		RepliedAt:          uint64(vr.RepliedAt.Unix()),
+		RequestedAt:        vr.RequestedAt,
+		RepliedAt:          vr.RepliedAt,
 		VerificationStatus: protobuf.SyncVerificationRequest_VerificationStatus(vr.RequestStatus),
 	}
 	encodedMessage, err := proto.Marshal(syncMessage)
@@ -5608,8 +5608,8 @@ func ToVerificationRequest(message protobuf.SyncVerificationRequest) *verificati
 		To:            message.To,
 		Challenge:     message.Challenge,
 		Response:      message.Response,
-		RequestedAt:   time.Unix(int64(message.RequestedAt), 0),
-		RepliedAt:     time.Unix(int64(message.RepliedAt), 0),
+		RequestedAt:   message.RequestedAt,
+		RepliedAt:     message.RepliedAt,
 		RequestStatus: verification.RequestStatus(message.VerificationStatus),
 	}
 }
