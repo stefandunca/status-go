@@ -209,6 +209,15 @@ func (m *Messenger) AcceptContactVerificationRequest(ctx context.Context, contac
 	m.allChats.Store(chat.ID, chat)
 	clock, _ := chat.NextClockAndTimestamp(m.getTimesource())
 
+	verifRequest.RequestStatus = verification.RequestStatusACCEPTED
+	verifRequest.RepliedAt = clock
+	m.verificationDatabase.SaveVerificationRequest(verifRequest)
+
+	err = m.SyncVerificationRequest(context.Background(), verifRequest)
+	if err != nil {
+		return err
+	}
+
 	request := &protobuf.AcceptContactVerification{
 		Clock:    clock,
 		Response: response,
@@ -231,8 +240,6 @@ func (m *Messenger) AcceptContactVerificationRequest(ctx context.Context, contac
 	}
 
 	return m.verificationDatabase.AcceptContactVerificationRequest(contactID, response)
-
-	// TODO: SYNC VERIF
 }
 
 func (m *Messenger) VerifiedTrusted(ctx context.Context, contactID string) error {
@@ -328,6 +335,15 @@ func (m *Messenger) DeclineContactVerificationRequest(ctx context.Context, conta
 	m.allChats.Store(chat.ID, chat)
 	clock, _ := chat.NextClockAndTimestamp(m.getTimesource())
 
+	verifRequest.RequestStatus = verification.RequestStatusDECLINED
+	verifRequest.RepliedAt = clock
+	m.verificationDatabase.SaveVerificationRequest(verifRequest)
+
+	err = m.SyncVerificationRequest(context.Background(), verifRequest)
+	if err != nil {
+		return err
+	}
+
 	request := &protobuf.DeclineContactVerification{
 		Clock: clock,
 	}
@@ -347,8 +363,6 @@ func (m *Messenger) DeclineContactVerificationRequest(ctx context.Context, conta
 	if err != nil {
 		return err
 	}
-
-	// TODO: SYNC VERIF
 
 	return m.verificationDatabase.DeclineContactVerificationRequest(contactID)
 }
