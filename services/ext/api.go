@@ -718,6 +718,10 @@ func (api *PublicAPI) GetVerificationRequestFrom(ctx context.Context, contactID 
 	return api.service.messenger.GetVerificationRequestFrom(ctx, contactID)
 }
 
+func (api *PublicAPI) GetReceivedVerificationRequests(ctx context.Context) ([]*verification.Request, error) {
+	return api.service.messenger.GetReceivedVerificationRequests(ctx)
+}
+
 func (api *PublicAPI) GetVerificationRequestSentTo(ctx context.Context, contactID string) (*verification.Request, error) {
 	return api.service.messenger.GetVerificationRequestSentTo(ctx, contactID)
 }

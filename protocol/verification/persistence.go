@@ -89,6 +89,39 @@ func (p *Persistence) GetVerificationRequestFrom(contactID string) (*Request, er
 	}
 }
 
+func (p *Persistence) GetReceivedVerificationRequests(myPublicKey string) ([]*Request, error) {
+	response := make([]*Request, 0)
+
+	query := `SELECT from_user, to_user, challenge, response, requested_at, verification_status, replied_at FROM verification_requests WHERE to_user = ?`
+	rows, err := p.db.Query(query, myPublicKey)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	for rows.Next() {
+		var vr Request
+
+		err := rows.Scan(
+			&vr.From,
+			&vr.To,
+			&vr.Challenge,
+			&vr.Response,
+			&vr.RequestedAt,
+			&vr.RequestStatus,
+			&vr.RepliedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		response = append(response, &vr)
+	}
+
+	return response, nil
+}
+
 func (p *Persistence) GetVerificationRequestSentTo(contactID string) (*Request, error) {
 	var vr Request
 	err := p.db.QueryRow(`SELECT from_user, to_user, challenge, response, requested_at, verification_status, replied_at FROM verification_requests WHERE to_user = ?`, contactID).Scan(

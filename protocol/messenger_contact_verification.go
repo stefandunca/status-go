@@ -132,6 +132,11 @@ func (m *Messenger) GetVerificationRequestFrom(ctx context.Context, contactID st
 	return m.verificationDatabase.GetVerificationRequestFrom(contactID)
 }
 
+func (m *Messenger) GetReceivedVerificationRequests(ctx context.Context) ([]*verification.Request, error) {
+	myPubKey := hexutil.Encode(crypto.FromECDSAPub(&m.identity.PublicKey))
+	return m.verificationDatabase.GetReceivedVerificationRequests(myPubKey)
+}
+
 func (m *Messenger) CancelVerificationRequest(ctx context.Context, contactID string) error {
 	contact, ok := m.allContacts.Load(contactID)
 	if !ok || !contact.Added || !contact.HasAddedUs {
