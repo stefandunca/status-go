@@ -114,6 +114,45 @@ func (m *AcceptContactVerification) GetResponse() string {
 	return ""
 }
 
+type ContactVerificationTrusted struct {
+	Clock                uint64   `protobuf:"varint,1,opt,name=clock,proto3" json:"clock,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ContactVerificationTrusted) Reset()         { *m = ContactVerificationTrusted{} }
+func (m *ContactVerificationTrusted) String() string { return proto.CompactTextString(m) }
+func (*ContactVerificationTrusted) ProtoMessage()    {}
+func (*ContactVerificationTrusted) Descriptor() ([]byte, []int) {
+	return fileDescriptor_d6997df64de39454, []int{2}
+}
+
+func (m *ContactVerificationTrusted) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ContactVerificationTrusted.Unmarshal(m, b)
+}
+func (m *ContactVerificationTrusted) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ContactVerificationTrusted.Marshal(b, m, deterministic)
+}
+func (m *ContactVerificationTrusted) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ContactVerificationTrusted.Merge(m, src)
+}
+func (m *ContactVerificationTrusted) XXX_Size() int {
+	return xxx_messageInfo_ContactVerificationTrusted.Size(m)
+}
+func (m *ContactVerificationTrusted) XXX_DiscardUnknown() {
+	xxx_messageInfo_ContactVerificationTrusted.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ContactVerificationTrusted proto.InternalMessageInfo
+
+func (m *ContactVerificationTrusted) GetClock() uint64 {
+	if m != nil {
+		return m.Clock
+	}
+	return 0
+}
+
 type DeclineContactVerification struct {
 	Clock                uint64   `protobuf:"varint,1,opt,name=clock,proto3" json:"clock,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -125,7 +164,7 @@ func (m *DeclineContactVerification) Reset()         { *m = DeclineContactVerifi
 func (m *DeclineContactVerification) String() string { return proto.CompactTextString(m) }
 func (*DeclineContactVerification) ProtoMessage()    {}
 func (*DeclineContactVerification) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d6997df64de39454, []int{2}
+	return fileDescriptor_d6997df64de39454, []int{3}
 }
 
 func (m *DeclineContactVerification) XXX_Unmarshal(b []byte) error {
@@ -156,6 +195,7 @@ func (m *DeclineContactVerification) GetClock() uint64 {
 func init() {
 	proto.RegisterType((*RequestContactVerification)(nil), "protobuf.RequestContactVerification")
 	proto.RegisterType((*AcceptContactVerification)(nil), "protobuf.AcceptContactVerification")
+	proto.RegisterType((*ContactVerificationTrusted)(nil), "protobuf.ContactVerificationTrusted")
 	proto.RegisterType((*DeclineContactVerification)(nil), "protobuf.DeclineContactVerification")
 }
 
@@ -164,7 +204,7 @@ func init() {
 }
 
 var fileDescriptor_d6997df64de39454 = []byte{
-	// 168 bytes of a gzipped FileDescriptorProto
+	// 182 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x92, 0x4a, 0xce, 0xcf, 0x2b,
 	0x49, 0x4c, 0x2e, 0x89, 0x2f, 0x4b, 0x2d, 0xca, 0x4c, 0xcb, 0x4c, 0x4e, 0x2c, 0xc9, 0xcc, 0xcf,
 	0xd3, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x00, 0x53, 0x49, 0xa5, 0x69, 0x4a, 0x01, 0x5c,
@@ -173,7 +213,8 @@ var fileDescriptor_d6997df64de39454 = []byte{
 	0x21, 0x19, 0x2e, 0xce, 0xe4, 0x8c, 0xc4, 0x9c, 0x9c, 0xd4, 0xbc, 0xf4, 0x54, 0x09, 0x66, 0x05,
 	0x46, 0x0d, 0xce, 0x20, 0x84, 0x80, 0x92, 0x2f, 0x97, 0xa4, 0x63, 0x72, 0x72, 0x6a, 0x01, 0x09,
 	0x06, 0x4a, 0x71, 0x71, 0x14, 0xa5, 0x16, 0x17, 0xe4, 0xe7, 0x15, 0xc3, 0xcc, 0x83, 0xf3, 0x95,
-	0x8c, 0xb8, 0xa4, 0x5c, 0x52, 0x93, 0x73, 0x32, 0xf3, 0x52, 0x89, 0x36, 0xcf, 0x89, 0x37, 0x8a,
-	0x5b, 0x4f, 0xdf, 0x1a, 0xe6, 0xc7, 0x24, 0x36, 0x30, 0xcb, 0x18, 0x10, 0x00, 0x00, 0xff, 0xff,
-	0x57, 0xf7, 0x6c, 0xd9, 0x12, 0x01, 0x00, 0x00,
+	0x8c, 0xb8, 0xa4, 0xb0, 0x18, 0x14, 0x52, 0x54, 0x5a, 0x5c, 0x92, 0x9a, 0x82, 0xdd, 0x3c, 0x90,
+	0x1e, 0x97, 0xd4, 0xe4, 0x9c, 0xcc, 0xbc, 0x54, 0xa2, 0xdd, 0xe0, 0xc4, 0x1b, 0xc5, 0xad, 0xa7,
+	0x6f, 0x0d, 0x0b, 0x97, 0x24, 0x36, 0x30, 0xcb, 0x18, 0x10, 0x00, 0x00, 0xff, 0xff, 0x4f, 0x25,
+	0x40, 0xb3, 0x46, 0x01, 0x00, 0x00,
 }

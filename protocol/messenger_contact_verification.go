@@ -270,6 +270,56 @@ func (m *Messenger) VerifiedTrusted(ctx context.Context, contactID string) error
 		return err
 	}
 
+	chat, ok := m.allChats.Load(contactID)
+	clock, _ := chat.NextClockAndTimestamp(m.getTimesource())
+	if !ok {
+		publicKey, err := contact.PublicKey()
+		if err != nil {
+			return err
+		}
+		chat = OneToOneFromPublicKey(publicKey, m.getTimesource())
+		// We don't want to show the chat to the user
+		chat.Active = false
+	}
+
+	request := &protobuf.ContactVerificationTrusted{
+		Clock: clock,
+	}
+
+	encodedMessage, err := proto.Marshal(request)
+	if err != nil {
+		return err
+	}
+
+	_, err = m.dispatchMessage(ctx, common.RawMessage{
+		LocalChatID:         chat.ID,
+		Payload:             encodedMessage,
+		MessageType:         protobuf.ApplicationMetadataMessage_CONTACT_VERIFICATION_TRUSTED,
+		ResendAutomatically: true,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	verifRequest, err := m.verificationDatabase.GetVerificationRequestSentTo(contactID)
+	if err != nil {
+		return err
+	}
+
+	if verifRequest == nil {
+		return errors.New("no contact verification found")
+	}
+
+	verifRequest.RequestStatus = verification.RequestStatusTRUSTED
+	verifRequest.RepliedAt = clock
+	m.verificationDatabase.SaveVerificationRequest(verifRequest)
+
+	err = m.SyncVerificationRequest(context.Background(), verifRequest)
+	if err != nil {
+		return err
+	}
+
 	// We sync the contact with the other devices
 	err = m.syncContact(context.Background(), contact)
 	if err != nil {
@@ -591,6 +641,84 @@ func (m *Messenger) HandleDeclineContactVerification(state *ReceivedMessageState
 	}
 
 	state.AllVerificationRequests = append(state.AllVerificationRequests, persistedVR)
+
+	// TODO: create or update activity center notification
+
+	return nil
+}
+
+func (m *Messenger) HandleContactVerificationTrusted(state *ReceivedMessageState, request protobuf.ContactVerificationTrusted) error {
+	if common.IsPubKeyEqual(state.CurrentMessageState.PublicKey, &m.identity.PublicKey) {
+		return nil // Is ours, do nothing
+	}
+
+	myPubKey := hexutil.Encode(crypto.FromECDSAPub(&m.identity.PublicKey))
+	contactID := hexutil.Encode(crypto.FromECDSAPub(state.CurrentMessageState.PublicKey))
+
+	contact := state.CurrentMessageState.Contact
+	if !contact.Added || !contact.HasAddedUs {
+		m.logger.Debug("Received a verification trusted for a non mutual contact", zap.String("contactID", contactID))
+		return errors.New("must be a mutual contact")
+	}
+
+	err := m.verificationDatabase.SetTrustStatus(contactID, verification.TrustStatusTRUSTED, m.getTimesource().GetCurrentTime())
+	if err != nil {
+		return err
+	}
+
+	err = m.SyncTrustedUser(context.Background(), contactID, verification.TrustStatusTRUSTED)
+	if err != nil {
+		return err
+	}
+
+	persistedVR, err := m.verificationDatabase.GetVerificationRequestFrom(contactID)
+	if err != nil {
+		m.logger.Debug("Error obtaining verification request", zap.Error(err))
+		return err
+	}
+
+	if persistedVR != nil && persistedVR.RepliedAt > request.Clock {
+		return nil // older message, ignore it
+	}
+
+	if persistedVR.RequestStatus == verification.RequestStatusCANCELED {
+		return nil // Do nothing, We have already cancelled the verification request
+	}
+
+	if persistedVR == nil {
+		// This is a response for which we have not received its request before
+		persistedVR = &verification.Request{}
+		persistedVR.From = contactID
+		persistedVR.To = myPubKey
+	}
+
+	persistedVR.RequestStatus = verification.RequestStatusTRUSTED
+
+	err = m.verificationDatabase.SaveVerificationRequest(persistedVR)
+	if err != nil {
+		m.logger.Debug("Error storing verification request", zap.Error(err))
+		return err
+	}
+
+	err = m.SyncVerificationRequest(context.Background(), persistedVR)
+	if err != nil {
+		return err
+	}
+
+	state.AllVerificationRequests = append(state.AllVerificationRequests, persistedVR)
+
+	contact.VerificationStatus = VerificationStatusVERIFIED
+	contact.LastUpdatedLocally = m.getTimesource().GetCurrentTime()
+	err = m.persistence.SaveContact(contact, nil)
+	if err != nil {
+		return err
+	}
+
+	// We sync the contact with the other devices
+	err = m.syncContact(context.Background(), contact)
+	if err != nil {
+		return err
+	}
 
 	// TODO: create or update activity center notification
 

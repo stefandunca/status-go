@@ -13,6 +13,10 @@ message AcceptContactVerification {
   string response = 3;
 }
 
+message ContactVerificationTrusted {
+  uint64 clock = 1;
+}
+
 message DeclineContactVerification {
   uint64 clock = 1;
 }

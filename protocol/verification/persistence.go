@@ -28,6 +28,7 @@ const (
 	RequestStatusACCEPTED
 	RequestStatusDECLINED
 	RequestStatusCANCELED
+	RequestStatusTRUSTED
 )
 
 type TrustStatus int
