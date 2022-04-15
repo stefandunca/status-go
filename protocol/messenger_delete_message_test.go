@@ -99,6 +99,7 @@ func (s *MessengerDeleteMessageSuite) TestDeleteMessage() {
 	s.Require().Len(sendResponse.Chats(), 1)
 	// LastMessage is removed
 	s.Require().Nil(sendResponse.Chats()[0].LastMessage)
+	s.Require().Equal(uint(0), theirChat.UnviewedMessagesCount)
 
 	// Main instance user attempts to delete the message it received from theirMessenger
 	_, err = s.m.DeleteMessageAndSend(context.Background(), ogMessage.ID)

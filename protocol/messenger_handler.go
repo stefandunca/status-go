@@ -266,7 +266,7 @@ func (m *Messenger) handleCommandMessage(state *ReceivedMessageState, message *c
 
 	// Increase unviewed count
 	if !common.IsPubKeyEqual(message.SigPubKey, &m.identity.PublicKey) {
-		m.updateUnviewedCounts(chat, message.Mentioned)
+		m.increamentUnviewedCounts(chat, message.Mentioned)
 		message.OutgoingStatus = ""
 	} else {
 		// Our own message, mark as sent
@@ -758,6 +758,8 @@ func (m *Messenger) HandleDeleteMessage(state *ReceivedMessageState, deleteMessa
 		return errors.New("chat not found")
 	}
 
+	unViewedCounts := chat.UnviewedMessagesCount
+
 	// Check edit is valid
 	if originalMessage.From != deleteMessage.From {
 		return errors.New("invalid delete, not the right author")
@@ -787,6 +789,12 @@ func (m *Messenger) HandleDeleteMessage(state *ReceivedMessageState, deleteMessa
 	if chat.LastMessage != nil && chat.LastMessage.ID == originalMessage.ID {
 		if err := m.updateLastMessage(chat); err != nil {
 			return err
+		}
+	}
+
+	if !originalMessage.Seen && originalMessage.Deleted {
+		if chat.UnviewedMentionsCount >= unViewedCounts {
+			m.decreamentUnviewedCounts(chat, originalMessage.Mentioned)
 		}
 	}
 
@@ -888,7 +896,7 @@ func (m *Messenger) HandleChatMessage(state *ReceivedMessageState) error {
 	// Increase unviewed count
 	if !common.IsPubKeyEqual(receivedMessage.SigPubKey, &m.identity.PublicKey) {
 		if !receivedMessage.Seen {
-			m.updateUnviewedCounts(chat, receivedMessage.Mentioned)
+			m.increamentUnviewedCounts(chat, receivedMessage.Mentioned)
 		}
 	} else {
 		// Our own message, mark as sent
@@ -1599,9 +1607,16 @@ func (m *Messenger) isMessageAllowedFrom(publicKey string, chat *Chat) (bool, er
 	return contact.Added, nil
 }
 
-func (m *Messenger) updateUnviewedCounts(chat *Chat, mentioned bool) {
+func (m *Messenger) increamentUnviewedCounts(chat *Chat, mentioned bool) {
 	chat.UnviewedMessagesCount++
 	if mentioned {
 		chat.UnviewedMentionsCount++
+	}
+}
+
+func (m *Messenger) decreamentUnviewedCounts(chat *Chat, mentioned bool) {
+	chat.UnviewedMessagesCount--
+	if mentioned {
+		chat.UnviewedMentionsCount--
 	}
 }
