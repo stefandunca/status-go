@@ -166,7 +166,7 @@ message SyncProfilePicture {
   string name = 1;
   bytes  payload = 2;
 	uint32 width = 3;
-	uint32 height = 4;      
+	uint32 height = 4;
 	uint32 file_size = 5;
 	uint32 resize_target = 6;
   uint64 clock = 7;
@@ -194,6 +194,16 @@ message SyncWalletAccount {
 
 message SyncWalletAccounts {
   repeated SyncWalletAccount accounts = 1;
+}
+
+message SyncSavedAddress {
+  bytes  address = 1;
+  string name = 2;
+  bool   favourite = 3;
+  uint64 chain_id = 4;
+  bool   removed = 5;
+  uint64 sync_clock = 6;
+  int64 update_clock = 7;
 }
 
 message SyncCommunitySettings {

@@ -2,9 +2,13 @@ package wallet
 
 import (
 	"database/sql"
+	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 )
+
+var syncClockCreatedEditedHere = sql.NullInt64{Int64: 0, Valid: false}
 
 type SavedAddress struct {
 	Address common.Address `json:"address"`
@@ -15,41 +19,182 @@ type SavedAddress struct {
 	ChainID   uint64 `json:"chainId"`
 }
 
+type SavedAddressMeta struct {
+	Removed     bool
+	SyncClock   sql.NullInt64 // clock of the last sync
+	UpdateClock sql.NullInt64 // wall clock used to deconflict concurrent updates
+}
+
 type SavedAddressesManager struct {
 	db *sql.DB
 }
 
-func (sam *SavedAddressesManager) GetSavedAddresses(chainID uint64) ([]SavedAddress, error) {
-	rows, err := sam.db.Query("SELECT address, name, favourite, network_id FROM saved_addresses WHERE network_id = ?", chainID)
+func NewSavedAddressesManager(db *sql.DB) *SavedAddressesManager {
+	return &SavedAddressesManager{db: db}
+}
+
+const rawQueryColumnsOrder = "address, name, favourite, network_id, removed, sync_clock, update_clock"
+
+// Retrieve raw data based on SELECT query using rawQueryColumnsOrder
+func getRawSavedAddressesFromDBRows(rows *sql.Rows) ([]SavedAddress, []SavedAddressMeta, error) {
+	var addresses []SavedAddress
+	var metas []SavedAddressMeta
+	for rows.Next() {
+		sa := SavedAddress{}
+		sam := SavedAddressMeta{}
+		// based on rawQueryColumnsOrder
+		err := rows.Scan(&sa.Address, &sa.Name, &sa.Favourite, &sa.ChainID, &sam.Removed, &sam.SyncClock, &sam.UpdateClock)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		addresses = append(addresses, sa)
+		metas = append(metas, sam)
+	}
+
+	return addresses, metas, nil
+}
+
+func (sam *SavedAddressesManager) GetSavedAddressesForChainID(chainID uint64) ([]SavedAddress, error) {
+	rows, err := sam.db.Query(fmt.Sprintf("SELECT %s FROM saved_addresses WHERE network_id = ? AND removed != 1", rawQueryColumnsOrder), chainID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var rst []SavedAddress
-	for rows.Next() {
-		sa := SavedAddress{}
-		err := rows.Scan(&sa.Address, &sa.Name, &sa.Favourite, &sa.ChainID)
-		if err != nil {
-			return nil, err
-		}
-
-		rst = append(rst, sa)
-	}
-
-	return rst, nil
+	addresses, _, err := getRawSavedAddressesFromDBRows(rows)
+	return addresses, err
 }
 
-func (sam *SavedAddressesManager) AddSavedAddress(sa SavedAddress) error {
-	insert, err := sam.db.Prepare("INSERT OR REPLACE INTO saved_addresses (network_id, address, name, favourite) VALUES (?, ?, ?, ?)")
+func (sam *SavedAddressesManager) GetSavedAddresses() ([]SavedAddress, error) {
+	rows, err := sam.db.Query(fmt.Sprintf("SELECT %s FROM saved_addresses WHERE removed != 1", rawQueryColumnsOrder))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	addresses, _, err := getRawSavedAddressesFromDBRows(rows)
+	return addresses, err
+}
+
+// Provide access to the soft-delete and sync metadata
+func (sam *SavedAddressesManager) GetRawSavedAddresses() ([]SavedAddress, []SavedAddressMeta, error) {
+	rows, err := sam.db.Query(fmt.Sprintf("SELECT %s FROM saved_addresses", rawQueryColumnsOrder))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	return getRawSavedAddressesFromDBRows(rows)
+}
+
+func (sam *SavedAddressesManager) addRawSavedAddress(sa SavedAddress, meta SavedAddressMeta, tx *sql.Tx) error {
+	sqlStatement := "INSERT OR REPLACE INTO saved_addresses (network_id, address, name, favourite, removed, sync_clock, update_clock) VALUES (?, ?, ?, ?, ?, ?, ?)"
+	var err error
+	var insert *sql.Stmt
+	if tx != nil {
+		insert, err = tx.Prepare(sqlStatement)
+	} else {
+		insert, err = sam.db.Prepare(sqlStatement)
+	}
 	if err != nil {
 		return err
 	}
-	_, err = insert.Exec(sa.ChainID, sa.Address, sa.Name, sa.Favourite)
+	defer insert.Close()
+	_, err = insert.Exec(sa.ChainID, sa.Address, sa.Name, sa.Favourite, meta.Removed, meta.SyncClock, meta.UpdateClock)
 	return err
 }
 
-func (sam *SavedAddressesManager) DeleteSavedAddress(chainID uint64, address common.Address) error {
-	_, err := sam.db.Exec(`DELETE FROM saved_addresses WHERE address = ? AND network_id = ?`, address, chainID)
+func (sam *SavedAddressesManager) UpsertSavedAddress(sa SavedAddress) (updatedClock int64, err error) {
+	updateClock := time.Now().Unix()
+	err = sam.addRawSavedAddress(sa, SavedAddressMeta{false, syncClockCreatedEditedHere, sql.NullInt64{Int64: updateClock, Valid: true}}, nil)
+	if err != nil {
+		return 0, err
+	}
+	return updateClock, nil
+}
+
+func (sam *SavedAddressesManager) startTransactionAndCheckIfNewerChange(ChainID uint64, Address common.Address, updateClock int64) (newer bool, tx *sql.Tx, err error) {
+	tx, err = sam.db.Begin()
+	if err != nil {
+		return false, nil, err
+	}
+	row := tx.QueryRow("SELECT update_clock FROM saved_addresses WHERE network_id = ? AND address = ?", ChainID, Address)
+	if err != nil {
+		return false, tx, err
+	}
+
+	var dbUpdateClock int64
+	err = row.Scan(&dbUpdateClock)
+	if err != nil {
+		return err == sql.ErrNoRows, tx, err
+	}
+	return dbUpdateClock <= updateClock, tx, nil
+}
+
+func (sam *SavedAddressesManager) AddSavedAddressIfNewerUpdate(sa SavedAddress, syncClock int64, updateClock int64) (insertedOrUpdated bool, err error) {
+	newer, tx, err := sam.startTransactionAndCheckIfNewerChange(sa.ChainID, sa.Address, updateClock)
+	defer func() {
+		if err == nil {
+			err = tx.Commit()
+			return
+		}
+		_ = tx.Rollback()
+	}()
+	if !newer {
+		return false, err
+	}
+
+	err = sam.addRawSavedAddress(sa, SavedAddressMeta{false, sql.NullInt64{Int64: syncClock, Valid: true}, sql.NullInt64{Int64: updateClock, Valid: true}}, tx)
+	if err != nil {
+		return false, err
+	}
+
+	return true, err
+}
+
+func (sam *SavedAddressesManager) DeleteSavedAddressIfNewerUpdate(chainID uint64, address common.Address, syncClock int64, updateClock int64) (deleted bool, err error) {
+	newer, tx, err := sam.startTransactionAndCheckIfNewerChange(chainID, address, updateClock)
+	defer func() {
+		if err == nil {
+			err = tx.Commit()
+			return
+		}
+		_ = tx.Rollback()
+	}()
+	if !newer {
+		return false, err
+	}
+
+	var insert *sql.Stmt
+	insert, err = tx.Prepare(`INSERT OR REPLACE INTO saved_addresses (network_id, address, name, favourite, removed, sync_clock, update_clock) VALUES (?, ?, "", 0, 1, ?, ?)`)
+	if err != nil {
+		return false, err
+	}
+	defer insert.Close()
+	_, err = insert.Exec(chainID, address, syncClock, updateClock)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (sam *SavedAddressesManager) DeleteSavedAddress(chainID uint64, address common.Address) (updatedClock int64, err error) {
+	insert, err := sam.db.Prepare(`INSERT OR REPLACE INTO saved_addresses (network_id, address, name, favourite, removed, sync_clock, update_clock) VALUES (?, ?, "", 0, 1, NULL, ?)`)
+	if err != nil {
+		return 0, err
+	}
+	defer insert.Close()
+	updateClock := time.Now().Unix()
+	_, err = insert.Exec(chainID, address, updateClock)
+	if err != nil {
+		return 0, err
+	}
+	return updateClock, nil
+}
+
+func (sam *SavedAddressesManager) DeleteSoftRemovedSavedAddresses(threshold int64) error {
+	_, err := sam.db.Exec(`DELETE FROM saved_addresses WHERE removed = 1 AND update_clock < ?`, threshold)
 	return err
 }
