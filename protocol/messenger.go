@@ -2352,16 +2352,15 @@ func (m *Messenger) SyncDevices(ctx context.Context, ensName, photoPath string) 
 		return err
 	}
 
-	savedAddresses, sAMetas, err := m.savedAddressesManager.GetRawSavedAddresses()
+	savedAddresses, err := m.savedAddressesManager.GetRawSavedAddresses()
 	if err != nil {
 		return err
 	}
 
 	for i := range savedAddresses {
 		sa := savedAddresses[i]
-		meta := sAMetas[i]
 
-		err = m.syncSavedAddress(ctx, sa, meta)
+		err = m.syncSavedAddress(ctx, sa)
 		if err != nil {
 			return err
 		}

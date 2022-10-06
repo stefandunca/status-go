@@ -47,7 +47,10 @@ func TestSavedAddresses(t *testing.T) {
 	rst, err = manager.GetSavedAddressesForChainID(777)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(rst))
-	require.Equal(t, sa, rst[0])
+	require.Equal(t, sa.Address, rst[0].Address)
+	require.Equal(t, sa.Name, rst[0].Name)
+	require.Equal(t, sa.Favourite, rst[0].Favourite)
+	require.Equal(t, sa.ChainID, rst[0].ChainID)
 
 	_, err = manager.DeleteSavedAddress(777, sa.Address)
 	require.NoError(t, err)
@@ -57,32 +60,35 @@ func TestSavedAddresses(t *testing.T) {
 	require.Equal(t, 0, len(rst))
 }
 
-func contains[T comparable](container []T, element T) bool {
+func contains[T comparable](container []T, element T, isEqual func(T, T) bool) bool {
 	for _, e := range container {
-		if e == element {
+		if isEqual(e, element) {
 			return true
 		}
 	}
 	return false
 }
 
-func haveSameElements[T comparable](a []T, b []T) bool {
+func haveSameElements[T comparable](a []T, b []T, isEqual func(T, T) bool) bool {
 	for _, v := range a {
-		if !contains(b, v) {
+		if !contains(b, v, isEqual) {
 			return false
 		}
 	}
 	return true
 }
 
+func savedAddressDataIsEqual(a, b SavedAddress) bool {
+	return a.Address == b.Address && a.ChainID == b.ChainID && a.Name == b.Name && a.Favourite == b.Favourite
+}
+
 func TestSavedAddressesMetadata(t *testing.T) {
 	manager, stop := setupTestSavedAddressesDB(t)
 	defer stop()
 
-	savedAddresses, metadatas, err := manager.GetRawSavedAddresses()
+	savedAddresses, err := manager.GetRawSavedAddresses()
 	require.NoError(t, err)
 	require.Nil(t, savedAddresses)
-	require.Nil(t, metadatas)
 
 	// Add raw saved addresses
 	sa1 := SavedAddress{
@@ -90,23 +96,20 @@ func TestSavedAddressesMetadata(t *testing.T) {
 		ChainID:   777,
 		Name:      "Raw",
 		Favourite: true,
+		SavedAddressMeta: SavedAddressMeta{
+			Removed:     false,
+			SyncClock:   sql.NullInt64{Int64: 0, Valid: false},
+			UpdateClock: sql.NullInt64{Int64: 234, Valid: true},
+		},
 	}
 
-	meta1 := SavedAddressMeta{
-		Removed:     false,
-		SyncClock:   sql.NullInt64{0, false},
-		UpdateClock: sql.NullInt64{234, true},
-	}
-
-	err = manager.addRawSavedAddress(sa1, meta1, nil)
+	err = manager.addRawSavedAddress(sa1, nil)
 	require.NoError(t, err)
 
-	dbSavedAddresses, dbMetadatas, err := manager.GetRawSavedAddresses()
+	dbSavedAddresses, err := manager.GetRawSavedAddresses()
 	require.NoError(t, err)
 	require.Equal(t, 1, len(dbSavedAddresses))
-	require.Equal(t, 1, len(dbMetadatas))
 	require.Equal(t, sa1, dbSavedAddresses[0])
-	require.Equal(t, meta1, dbMetadatas[0])
 
 	// Add simple saved address without sync metadata
 	sa2 := SavedAddress{
@@ -119,10 +122,9 @@ func TestSavedAddressesMetadata(t *testing.T) {
 	_, err = manager.UpsertSavedAddress(sa2)
 	require.NoError(t, err)
 
-	dbSavedAddresses, dbMetadatas, err = manager.GetRawSavedAddresses()
+	dbSavedAddresses, err = manager.GetRawSavedAddresses()
 	require.NoError(t, err)
 	require.Equal(t, 2, len(dbSavedAddresses))
-	require.Equal(t, 2, len(dbMetadatas))
 	// The order is not guaranteed check raw entry to decide
 	rawIndex := 0
 	simpleIndex := 1
@@ -131,13 +133,16 @@ func TestSavedAddressesMetadata(t *testing.T) {
 		simpleIndex = 0
 	}
 	require.Equal(t, sa1, dbSavedAddresses[rawIndex])
-	require.Equal(t, sa2, dbSavedAddresses[simpleIndex])
-	require.Equal(t, meta1, dbMetadatas[rawIndex])
+	require.Equal(t, sa2.Address, dbSavedAddresses[simpleIndex].Address)
+	require.Equal(t, sa2.ChainID, dbSavedAddresses[simpleIndex].ChainID)
+	require.Equal(t, sa2.Name, dbSavedAddresses[simpleIndex].Name)
+	require.Equal(t, sa2.Favourite, dbSavedAddresses[simpleIndex].Favourite)
+
 	// Check the default values
-	require.False(t, dbMetadatas[simpleIndex].Removed)
-	require.False(t, dbMetadatas[simpleIndex].SyncClock.Valid)
-	require.True(t, dbMetadatas[simpleIndex].UpdateClock.Valid)
-	require.Greater(t, dbMetadatas[simpleIndex].UpdateClock.Int64, int64(0))
+	require.False(t, dbSavedAddresses[simpleIndex].Removed)
+	require.False(t, dbSavedAddresses[simpleIndex].SyncClock.Valid)
+	require.True(t, dbSavedAddresses[simpleIndex].UpdateClock.Valid)
+	require.Greater(t, dbSavedAddresses[simpleIndex].UpdateClock.Int64, int64(0))
 
 	sa2Older := sa2
 	sa2Older.Name = "Conditional, NOT updated"
@@ -149,11 +154,11 @@ func TestSavedAddressesMetadata(t *testing.T) {
 
 	// Try to add an older entry
 	updated := false
-	updated, err = manager.AddSavedAddressIfNewerUpdate(sa2Older, 10, dbMetadatas[simpleIndex].UpdateClock.Int64-1)
+	updated, err = manager.AddSavedAddressIfNewerUpdate(sa2Older, 10, dbSavedAddresses[simpleIndex].UpdateClock.Int64-1)
 	require.NoError(t, err)
 	require.False(t, updated)
 
-	dbSavedAddresses, dbMetadatas, err = manager.GetRawSavedAddresses()
+	dbSavedAddresses, err = manager.GetRawSavedAddresses()
 	require.NoError(t, err)
 
 	rawIndex = 0
@@ -164,17 +169,16 @@ func TestSavedAddressesMetadata(t *testing.T) {
 	}
 
 	require.Equal(t, 2, len(dbSavedAddresses))
-	require.Equal(t, 2, len(dbMetadatas))
-	require.True(t, haveSameElements([]SavedAddress{sa1, sa2}, dbSavedAddresses))
-	require.Equal(t, meta1, dbMetadatas[rawIndex])
+	require.True(t, haveSameElements([]SavedAddress{sa1, sa2}, dbSavedAddresses, savedAddressDataIsEqual))
+	require.Equal(t, sa1.SavedAddressMeta, dbSavedAddresses[rawIndex].SavedAddressMeta)
 
 	// Try to update sa2 with a newer entry
-	updatedClock := dbMetadatas[simpleIndex].UpdateClock.Int64 + 1
+	updatedClock := dbSavedAddresses[simpleIndex].UpdateClock.Int64 + 1
 	updated, err = manager.AddSavedAddressIfNewerUpdate(sa2Newer, 11, updatedClock)
 	require.NoError(t, err)
 	require.True(t, updated)
 
-	dbSavedAddresses, dbMetadatas, err = manager.GetRawSavedAddresses()
+	dbSavedAddresses, err = manager.GetRawSavedAddresses()
 	require.NoError(t, err)
 
 	simpleIndex = 1
@@ -183,9 +187,8 @@ func TestSavedAddressesMetadata(t *testing.T) {
 	}
 
 	require.Equal(t, 2, len(dbSavedAddresses))
-	require.Equal(t, 2, len(dbMetadatas))
-	require.True(t, haveSameElements([]SavedAddress{sa1, sa2Newer}, dbSavedAddresses))
-	require.Equal(t, updatedClock, dbMetadatas[simpleIndex].UpdateClock.Int64)
+	require.True(t, haveSameElements([]SavedAddress{sa1, sa2Newer}, dbSavedAddresses, savedAddressDataIsEqual))
+	require.Equal(t, updatedClock, dbSavedAddresses[simpleIndex].UpdateClock.Int64)
 
 	// Try to delete the sa2 newer entry
 	updatedDeleteClock := updatedClock + 1
@@ -193,7 +196,7 @@ func TestSavedAddressesMetadata(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, updated)
 
-	dbSavedAddresses, dbMetadatas, err = manager.GetRawSavedAddresses()
+	dbSavedAddresses, err = manager.GetRawSavedAddresses()
 	require.NoError(t, err)
 
 	simpleIndex = 1
@@ -202,8 +205,7 @@ func TestSavedAddressesMetadata(t *testing.T) {
 	}
 
 	require.Equal(t, 2, len(dbSavedAddresses))
-	require.Equal(t, 2, len(dbMetadatas))
-	require.True(t, dbMetadatas[simpleIndex].Removed)
+	require.True(t, dbSavedAddresses[simpleIndex].Removed)
 
 	// Check that deleted entry is not returned with the regular API (non-raw)
 	dbSavedAddresses, err = manager.GetSavedAddresses()
@@ -222,23 +224,27 @@ func TestSavedAddressesCleanSoftDeletes(t *testing.T) {
 			ChainID:   777,
 			Name:      "Test" + strconv.Itoa(i),
 			Favourite: false,
+			SavedAddressMeta: SavedAddressMeta{
+				Removed:     true,
+				SyncClock:   sql.NullInt64{Int64: 0, Valid: false},
+				UpdateClock: sql.NullInt64{Int64: int64(firstTimestamp + i), Valid: true},
+			},
 		}
 
-		meta := SavedAddressMeta{
-			Removed:     true,
-			SyncClock:   sql.NullInt64{Int64: 0, Valid: false},
-			UpdateClock: sql.NullInt64{Int64: int64(firstTimestamp + i), Valid: true},
-		}
-
-		err := manager.addRawSavedAddress(sa, meta, nil)
+		err := manager.addRawSavedAddress(sa, nil)
 		require.NoError(t, err)
 	}
 
 	err := manager.DeleteSoftRemovedSavedAddresses(int64(firstTimestamp + 3))
 	require.NoError(t, err)
 
-	dbSavedAddresses, dbMetadatas, err := manager.GetRawSavedAddresses()
+	dbSavedAddresses, err := manager.GetRawSavedAddresses()
 	require.NoError(t, err)
 	require.Equal(t, 2, len(dbSavedAddresses))
-	require.True(t, haveSameElements([]int64{dbMetadatas[0].UpdateClock.Int64, dbMetadatas[1].UpdateClock.Int64}, []int64{int64(firstTimestamp + 3), int64(firstTimestamp + 4)}))
+	require.True(t, haveSameElements([]int64{dbSavedAddresses[0].UpdateClock.Int64,
+		dbSavedAddresses[1].UpdateClock.Int64}, []int64{int64(firstTimestamp + 3), int64(firstTimestamp + 4)},
+		func(a, b int64) bool {
+			return a == b
+		},
+	))
 }

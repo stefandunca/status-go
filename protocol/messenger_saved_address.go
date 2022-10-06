@@ -78,13 +78,13 @@ func (m *Messenger) SyncDeletedSavedAddress(ctx context.Context, chainID uint64,
 	})
 }
 
-func (m *Messenger) syncSavedAddress(ctx context.Context, savedAddress wallet.SavedAddress, metadata wallet.SavedAddressMeta) (err error) {
-	if metadata.Removed {
-		if err = m.SyncDeletedSavedAddress(ctx, savedAddress.ChainID, savedAddress.Address, metadata.UpdateClock.Int64); err != nil {
+func (m *Messenger) syncSavedAddress(ctx context.Context, savedAddress wallet.SavedAddress) (err error) {
+	if savedAddress.Removed {
+		if err = m.SyncDeletedSavedAddress(ctx, savedAddress.ChainID, savedAddress.Address, savedAddress.UpdateClock.Int64); err != nil {
 			return err
 		}
 	} else {
-		if err = m.SyncNewSavedAddress(ctx, &savedAddress, metadata.UpdateClock.Int64); err != nil {
+		if err = m.SyncNewSavedAddress(ctx, &savedAddress, savedAddress.UpdateClock.Int64); err != nil {
 			return err
 		}
 	}

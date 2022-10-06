@@ -10,6 +10,13 @@ import (
 
 var syncClockCreatedEditedHere = sql.NullInt64{Int64: 0, Valid: false}
 
+// TODO: make them private?
+type SavedAddressMeta struct {
+	Removed     bool
+	SyncClock   sql.NullInt64 // clock of the last sync
+	UpdateClock sql.NullInt64 // wall clock used to deconflict concurrent updates
+}
+
 type SavedAddress struct {
 	Address common.Address `json:"address"`
 	// TODO: Add Emoji and Networks
@@ -17,12 +24,7 @@ type SavedAddress struct {
 	Name      string `json:"name"`
 	Favourite bool   `json:"favourite"`
 	ChainID   uint64 `json:"chainId"`
-}
-
-type SavedAddressMeta struct {
-	Removed     bool
-	SyncClock   sql.NullInt64 // clock of the last sync
-	UpdateClock sql.NullInt64 // wall clock used to deconflict concurrent updates
+	SavedAddressMeta
 }
 
 type SavedAddressesManager struct {
@@ -36,23 +38,20 @@ func NewSavedAddressesManager(db *sql.DB) *SavedAddressesManager {
 const rawQueryColumnsOrder = "address, name, favourite, network_id, removed, sync_clock, update_clock"
 
 // Retrieve raw data based on SELECT query using rawQueryColumnsOrder
-func getRawSavedAddressesFromDBRows(rows *sql.Rows) ([]SavedAddress, []SavedAddressMeta, error) {
+func getRawSavedAddressesFromDBRows(rows *sql.Rows) ([]SavedAddress, error) {
 	var addresses []SavedAddress
-	var metas []SavedAddressMeta
 	for rows.Next() {
 		sa := SavedAddress{}
-		sam := SavedAddressMeta{}
 		// based on rawQueryColumnsOrder
-		err := rows.Scan(&sa.Address, &sa.Name, &sa.Favourite, &sa.ChainID, &sam.Removed, &sam.SyncClock, &sam.UpdateClock)
+		err := rows.Scan(&sa.Address, &sa.Name, &sa.Favourite, &sa.ChainID, &sa.Removed, &sa.SyncClock, &sa.UpdateClock)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		addresses = append(addresses, sa)
-		metas = append(metas, sam)
 	}
 
-	return addresses, metas, nil
+	return addresses, nil
 }
 
 func (sam *SavedAddressesManager) GetSavedAddressesForChainID(chainID uint64) ([]SavedAddress, error) {
@@ -62,7 +61,7 @@ func (sam *SavedAddressesManager) GetSavedAddressesForChainID(chainID uint64) ([
 	}
 	defer rows.Close()
 
-	addresses, _, err := getRawSavedAddressesFromDBRows(rows)
+	addresses, err := getRawSavedAddressesFromDBRows(rows)
 	return addresses, err
 }
 
@@ -73,22 +72,22 @@ func (sam *SavedAddressesManager) GetSavedAddresses() ([]SavedAddress, error) {
 	}
 	defer rows.Close()
 
-	addresses, _, err := getRawSavedAddressesFromDBRows(rows)
+	addresses, err := getRawSavedAddressesFromDBRows(rows)
 	return addresses, err
 }
 
 // Provide access to the soft-delete and sync metadata
-func (sam *SavedAddressesManager) GetRawSavedAddresses() ([]SavedAddress, []SavedAddressMeta, error) {
+func (sam *SavedAddressesManager) GetRawSavedAddresses() ([]SavedAddress, error) {
 	rows, err := sam.db.Query(fmt.Sprintf("SELECT %s FROM saved_addresses", rawQueryColumnsOrder))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
 	return getRawSavedAddressesFromDBRows(rows)
 }
 
-func (sam *SavedAddressesManager) addRawSavedAddress(sa SavedAddress, meta SavedAddressMeta, tx *sql.Tx) error {
+func (sam *SavedAddressesManager) addRawSavedAddress(sa SavedAddress, tx *sql.Tx) error {
 	sqlStatement := "INSERT OR REPLACE INTO saved_addresses (network_id, address, name, favourite, removed, sync_clock, update_clock) VALUES (?, ?, ?, ?, ?, ?, ?)"
 	var err error
 	var insert *sql.Stmt
@@ -101,13 +100,15 @@ func (sam *SavedAddressesManager) addRawSavedAddress(sa SavedAddress, meta Saved
 		return err
 	}
 	defer insert.Close()
-	_, err = insert.Exec(sa.ChainID, sa.Address, sa.Name, sa.Favourite, meta.Removed, meta.SyncClock, meta.UpdateClock)
+	_, err = insert.Exec(sa.ChainID, sa.Address, sa.Name, sa.Favourite, sa.Removed, sa.SyncClock, sa.UpdateClock)
 	return err
 }
 
 func (sam *SavedAddressesManager) UpsertSavedAddress(sa SavedAddress) (updatedClock int64, err error) {
 	updateClock := time.Now().Unix()
-	err = sam.addRawSavedAddress(sa, SavedAddressMeta{false, syncClockCreatedEditedHere, sql.NullInt64{Int64: updateClock, Valid: true}}, nil)
+	sa.UpdateClock = sql.NullInt64{Int64: updateClock, Valid: true}
+	sa.SyncClock = syncClockCreatedEditedHere
+	err = sam.addRawSavedAddress(sa, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -145,7 +146,9 @@ func (sam *SavedAddressesManager) AddSavedAddressIfNewerUpdate(sa SavedAddress, 
 		return false, err
 	}
 
-	err = sam.addRawSavedAddress(sa, SavedAddressMeta{false, sql.NullInt64{Int64: syncClock, Valid: true}, sql.NullInt64{Int64: updateClock, Valid: true}}, tx)
+	sa.SyncClock = sql.NullInt64{Int64: syncClock, Valid: true}
+	sa.UpdateClock = sql.NullInt64{Int64: updateClock, Valid: true}
+	err = sam.addRawSavedAddress(sa, tx)
 	if err != nil {
 		return false, err
 	}

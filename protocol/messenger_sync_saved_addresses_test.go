@@ -91,24 +91,28 @@ func (s *MessengerSyncSavedAddressesSuite) newMessenger(shh types.Waku) *Messeng
 	return messenger
 }
 
-func contains[T comparable](container []T, element T) bool {
+// Helpers duplicate of wallet test. Could not import it from saved_addresses_test.go
+
+func contains[T comparable](container []T, element T, isEqual func(T, T) bool) bool {
 	for _, e := range container {
-		if e == element {
+		if isEqual(e, element) {
 			return true
 		}
 	}
 	return false
 }
 
-// Duplicated with saved_address_test
-// TODO: where is the best place to put helper functions between modules?
-func haveSameElements[T comparable](a []T, b []T) bool {
+func haveSameElements[T comparable](a []T, b []T, isEqual func(T, T) bool) bool {
 	for _, v := range a {
-		if !contains(b, v) {
+		if !contains(b, v, isEqual) {
 			return false
 		}
 	}
 	return true
+}
+
+func savedAddressDataIsEqual(a, b wallet.SavedAddress) bool {
+	return a.Address == b.Address && a.ChainID == b.ChainID && a.Name == b.Name && a.Favourite == b.Favourite
 }
 
 func (s *MessengerSyncSavedAddressesSuite) TestSyncExistingSavedAddresses() {
@@ -152,7 +156,7 @@ func (s *MessengerSyncSavedAddressesSuite) TestSyncExistingSavedAddresses() {
 	savedAddresses, err := s.other.savedAddressesManager.GetSavedAddresses()
 	s.Require().NoError(err)
 	s.Require().Equal(2, len(savedAddresses))
-	s.Require().True(haveSameElements([]wallet.SavedAddress{sa1, sa2}, savedAddresses))
+	s.Require().True(haveSameElements([]wallet.SavedAddress{sa1, sa2}, savedAddresses, savedAddressDataIsEqual))
 }
 
 func (s *MessengerSyncSavedAddressesSuite) TestSyncSavedAddresses() {
@@ -190,7 +194,7 @@ func (s *MessengerSyncSavedAddressesSuite) TestSyncSavedAddresses() {
 	savedAddresses, err := s.other.savedAddressesManager.GetSavedAddresses()
 	s.Require().NoError(err)
 	s.Require().Equal(2, len(savedAddresses))
-	s.Require().True(haveSameElements([]wallet.SavedAddress{sa1, sa2}, savedAddresses))
+	s.Require().True(haveSameElements([]wallet.SavedAddress{sa1, sa2}, savedAddresses, savedAddressDataIsEqual))
 }
 
 func (s *MessengerSyncSavedAddressesSuite) TestSyncDeletesOfSavedAddresses() {
