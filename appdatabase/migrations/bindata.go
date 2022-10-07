@@ -841,7 +841,7 @@ func _1664783660_add_sync_info_to_saved_addressesUpSql() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "1664783660_add_sync_info_to_saved_addresses.up.sql", size: 510, mode: os.FileMode(0644), modTime: time.Unix(1665127750, 0)}
+	info := bindataFileInfo{name: "1664783660_add_sync_info_to_saved_addresses.up.sql", size: 510, mode: os.FileMode(0644), modTime: time.Unix(1665129922, 0)}
 	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x57, 0x91, 0xb0, 0x97, 0xcd, 0x56, 0x3b, 0xd2, 0x83, 0x6d, 0x63, 0xd9, 0x58, 0xe1, 0xdf, 0x19, 0x34, 0xaf, 0x2e, 0xf1, 0x4d, 0xad, 0x41, 0x14, 0x2d, 0x8, 0xf2, 0x41, 0x86, 0xed, 0xef, 0x51}}
 	return a, nil
 }

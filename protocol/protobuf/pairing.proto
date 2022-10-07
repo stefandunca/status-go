@@ -203,7 +203,6 @@ message SyncSavedAddress {
   bool   favourite = 3;
   uint64 chain_id = 4;
   bool   removed = 5;
-  uint64 sync_clock = 6;
   uint64 update_clock = 7;
 }
 

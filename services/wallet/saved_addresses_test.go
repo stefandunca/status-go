@@ -97,7 +97,6 @@ func TestSavedAddressesMetadata(t *testing.T) {
 		Favourite: true,
 		SavedAddressMeta: SavedAddressMeta{
 			Removed:     false,
-			SyncClock:   SyncClockCreatedEditedHere,
 			UpdateClock: 234,
 		},
 	}
@@ -140,7 +139,6 @@ func TestSavedAddressesMetadata(t *testing.T) {
 
 	// Check the default values
 	require.False(t, dbSavedAddresses[simpleIndex].Removed)
-	require.Equal(t, dbSavedAddresses[simpleIndex].SyncClock, SyncClockCreatedEditedHere)
 	require.Equal(t, dbSavedAddresses[simpleIndex].UpdateClock, sa2UpdatedClock)
 	require.Greater(t, dbSavedAddresses[simpleIndex].UpdateClock, uint64(0))
 
@@ -154,7 +152,7 @@ func TestSavedAddressesMetadata(t *testing.T) {
 
 	// Try to add an older entry
 	updated := false
-	updated, err = manager.AddSavedAddressIfNewerUpdate(sa2Older, 10, dbSavedAddresses[simpleIndex].UpdateClock-1)
+	updated, err = manager.AddSavedAddressIfNewerUpdate(sa2Older, dbSavedAddresses[simpleIndex].UpdateClock-1)
 	require.NoError(t, err)
 	require.False(t, updated)
 
@@ -174,7 +172,7 @@ func TestSavedAddressesMetadata(t *testing.T) {
 
 	// Try to update sa2 with a newer entry
 	updatedClock := dbSavedAddresses[simpleIndex].UpdateClock + 1
-	updated, err = manager.AddSavedAddressIfNewerUpdate(sa2Newer, 11, updatedClock)
+	updated, err = manager.AddSavedAddressIfNewerUpdate(sa2Newer, updatedClock)
 	require.NoError(t, err)
 	require.True(t, updated)
 
@@ -192,7 +190,7 @@ func TestSavedAddressesMetadata(t *testing.T) {
 
 	// Try to delete the sa2 newer entry
 	updatedDeleteClock := updatedClock + 1
-	updated, err = manager.DeleteSavedAddressIfNewerUpdate(sa2Newer.ChainID, sa2Newer.Address, 12, updatedDeleteClock)
+	updated, err = manager.DeleteSavedAddressIfNewerUpdate(sa2Newer.ChainID, sa2Newer.Address, updatedDeleteClock)
 	require.NoError(t, err)
 	require.True(t, updated)
 
@@ -226,7 +224,6 @@ func TestSavedAddressesCleanSoftDeletes(t *testing.T) {
 			Favourite: false,
 			SavedAddressMeta: SavedAddressMeta{
 				Removed:     true,
-				SyncClock:   SyncClockCreatedEditedHere,
 				UpdateClock: uint64(firstTimestamp + i),
 			},
 		}

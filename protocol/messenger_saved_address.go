@@ -38,7 +38,6 @@ func (m *Messenger) dispatchSyncSavedAddress(ctx context.Context, syncMessage pr
 	}
 
 	clock, chat := m.getLastClockWithRelatedChat()
-	syncMessage.SyncClock = clock
 
 	encodedMessage, err := proto.Marshal(&syncMessage)
 	if err != nil {
@@ -95,7 +94,7 @@ func (m *Messenger) handleSyncSavedAddress(state *ReceivedMessageState, syncMess
 	address := gethcommon.BytesToAddress(syncMessage.Address)
 	if syncMessage.Removed {
 		_, err = m.savedAddressesManager.DeleteSavedAddressIfNewerUpdate(syncMessage.ChainId,
-			address, syncMessage.SyncClock, syncMessage.UpdateClock)
+			address, syncMessage.UpdateClock)
 		if err != nil {
 			return err
 		}
@@ -108,7 +107,7 @@ func (m *Messenger) handleSyncSavedAddress(state *ReceivedMessageState, syncMess
 			ChainID:   syncMessage.ChainId,
 		}
 
-		_, err = m.savedAddressesManager.AddSavedAddressIfNewerUpdate(sa, syncMessage.SyncClock, syncMessage.UpdateClock)
+		_, err = m.savedAddressesManager.AddSavedAddressIfNewerUpdate(sa, syncMessage.UpdateClock)
 		if err != nil {
 			return err
 		}
