@@ -3,7 +3,9 @@ package transfer
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -199,26 +201,23 @@ func (c *Controller) LoadTransferByHash(ctx context.Context, rpcClient *rpc.Clie
 	return nil
 }
 
-func (c *Controller) GetTransfersByAddress(ctx context.Context, chainID uint64, address common.Address, toBlock, limit *hexutil.Big, fetchMore bool) ([]View, error) {
+func (c *Controller) GetTransfersByAddress(ctx context.Context, chainID uint64, address common.Address, toBlock *big.Int, limit int64, fetchMore bool) ([]View, error) {
+	fmt.Println("GetTransfersByAddress", toBlock, limit, fetchMore)
 	log.Debug("[WalletAPI:: GetTransfersByAddress] get transfers for an address", "address", address)
-	var toBlockBN *big.Int
-	if toBlock != nil {
-		toBlockBN = toBlock.ToInt()
-	}
 
-	rst, err := c.db.GetTransfersByAddress(chainID, address, toBlockBN, limit.ToInt().Int64())
+	rst, err := c.db.GetTransfersByAddress(chainID, address, toBlock, limit)
 	if err != nil {
 		log.Error("[WalletAPI:: GetTransfersByAddress] can't fetch transfers", "err", err)
 		return nil, err
 	}
 
-	transfersCount := big.NewInt(int64(len(rst)))
+	transfersCount := int64(len(rst))
 	chainClient, err := chain.NewClient(c.rpcClient, chainID)
 	if err != nil {
 		return nil, err
 	}
 
-	if fetchMore && limit.ToInt().Cmp(transfersCount) == 1 {
+	if fetchMore && limit > transfersCount {
 		block, err := c.block.GetFirstKnownBlock(chainID, address)
 		if err != nil {
 			return nil, err
@@ -280,7 +279,7 @@ func (c *Controller) GetTransfersByAddress(ctx context.Context, chainID uint64, 
 				return nil, err
 			}
 
-			rst, err = c.db.GetTransfersByAddress(chainID, address, toBlockBN, limit.ToInt().Int64())
+			rst, err = c.db.GetTransfersByAddress(chainID, address, toBlock, limit)
 			if err != nil {
 				return nil, err
 			}
@@ -297,4 +296,87 @@ func (c *Controller) GetCachedBalances(ctx context.Context, chainID uint64, addr
 	}
 
 	return blocksToViews(result), nil
+}
+
+type BalanceState struct {
+	Value     big.Int `json:"value"`
+	Timestamp uint64  `json:"time"`
+}
+
+func bigIntFromHexBig(hex *hexutil.Big) *big.Int {
+	bigInt := big.Int(*hex)
+	return big.NewInt(0).Set(&bigInt)
+}
+
+func (c *Controller) GetCachedBalanceHistory(ctx context.Context, chainID uint64, address common.Address, hoursToNow uint64) ([]BalanceState, error) {
+	lastBalances, err := c.block.getLastKnownBalances(chainID, []common.Address{address})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(lastBalances) == 0 {
+		return make([]BalanceState, 0), nil
+	}
+
+	lastBlock := blocksToViews(lastBalances)[0]
+
+	var currentBalanceState BalanceState
+	currentBalanceState.Value.Set(lastBlock.Balance.Int)
+	currentTimePoint := uint64(time.Now().Unix())
+	currentBalanceState.Timestamp = currentTimePoint
+
+	nextBlockNumber := big.NewInt(0).Set(lastBlock.Number)
+	nextBlockNumber.Sub(nextBlockNumber, big.NewInt(1))
+
+	points := make([]BalanceState, 0)
+	points = append(points, currentBalanceState)
+
+	prevBalance := big.NewInt(0).Set(&currentBalanceState.Value)
+
+	startTimePoint := currentTimePoint - (hoursToNow * 3600)
+
+	var firstTen []View
+	prevBlockNumber := big.NewInt(0).Set(nextBlockNumber)
+	fmt.Println("nextBlockNumber", nextBlockNumber, "currentTimestamp", currentBalanceState.Timestamp)
+	// TODO: separate async service processing into transactions and balances
+	done := false
+	for !done {
+		firstTen, err = c.GetTransfersByAddress(ctx, chainID, address, nextBlockNumber, 10, true)
+		if err != nil {
+			return nil, err
+		}
+		if len(firstTen) == 0 {
+			break
+		}
+		for _, tx := range firstTen {
+			devGasFee, _ := big.NewInt(0).SetString(tx.BaseGasFees, 0)
+			fmt.Println("tx.BaseGasFees", devGasFee, "tx.GasPrice", bigIntFromHexBig(tx.GasPrice), "tx.GasUsed", big.NewInt(int64(tx.GasUsed)))
+			currentTimePoint = uint64(tx.Timestamp)
+			if currentTimePoint < startTimePoint {
+				done = true
+				break
+			}
+			opCost := big.NewInt(0).Set(bigIntFromHexBig(tx.Value))
+			gasUsed := big.NewInt(int64(tx.GasUsed))
+			opCost.Add(opCost, gasUsed.Mul(gasUsed, bigIntFromHexBig(tx.GasPrice)))
+
+			var t BalanceState
+			if tx.From == address {
+				t.Value.Set(prevBalance.Sub(prevBalance, opCost))
+			} else if tx.To == address {
+				t.Value.Set(prevBalance.Add(prevBalance, opCost))
+			}
+			t.Timestamp = currentTimePoint
+			points = append(points, t)
+
+			nextBlockNumber.Sub(bigIntFromHexBig(tx.BlockNumber), big.NewInt(1))
+		}
+		if nextBlockNumber.Cmp(big.NewInt(0)) < 0 || prevBlockNumber.Cmp(nextBlockNumber) == 0 {
+			break
+		}
+		prevBlockNumber.Set(nextBlockNumber)
+		fmt.Println("nextBlockNumber", nextBlockNumber, "currentTimestamp", currentBalanceState.Timestamp)
+	}
+	fmt.Println("@dd done", points)
+	return points, nil
 }

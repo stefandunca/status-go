@@ -3,6 +3,7 @@ package transfer
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -64,6 +65,7 @@ func (b *Block) mergeBlocksRanges(chainIDs []uint64, accounts []common.Address) 
 }
 
 func (b *Block) setInitialBlocksRange(chainClient *chain.Client) error {
+	fmt.Println("@dd setInitialBlocksRange")
 	accountsDB, err := accounts.NewDB(b.db)
 	if err != nil {
 		return err

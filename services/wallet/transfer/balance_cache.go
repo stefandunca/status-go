@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"sort"
 	"sync"
@@ -45,6 +46,7 @@ func (b *balanceCache) addBalanceToCache(account common.Address, blockNumber *bi
 		b.balances[account] = make(map[*big.Int]*big.Int)
 	}
 	b.balances[account][blockNumber] = balance
+	fmt.Println("@dd addBalanceToCache", account, blockNumber.Text(10), balance.Text(10))
 }
 
 func (b *balanceCache) BalanceAt(ctx context.Context, client BalanceReader, account common.Address, blockNumber *big.Int) (*big.Int, error) {
