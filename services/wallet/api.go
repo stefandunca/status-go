@@ -116,9 +116,15 @@ func (api *API) GetTokensBalancesForChainIDs(ctx context.Context, chainIDs []uin
 	return api.s.tokenManager.GetBalances(ctx, clients, accounts, addresses)
 }
 
-// GetBalanceHistory retrieves native token. Will be extended later to support token balance history
-func (api *API) GetBalanceHistory(ctx context.Context, chainID uint64, address common.Address, timeInterval transfer.BalanceHistoryTimeInterval) ([]transfer.BalanceState, error) {
-	return api.s.transferController.GetBalanceHistory(ctx, chainID, address, timeInterval)
+func (api *API) StartBalanceHistory(ctx context.Context) error {
+	api.s.transferController.StartBalanceHistory(api.s.rpcClient.NetworkManager, api.s.tokenManager)
+	return nil
+}
+
+// GetBalanceHistory retrieves native tokens only
+// TODO: extended to support token balance history
+func (api *API) GetBalanceHistory(ctx context.Context, chainID uint64, address common.Address, currency string, timeInterval transfer.BalanceHistoryTimeInterval) ([]*transfer.BalanceState, error) {
+	return api.s.transferController.GetBalanceHistoryAndInterruptUpdate(ctx, &transfer.BalanceHistoryRequirements{api.s.rpcClient.NetworkManager, api.s.tokenManager}, &transfer.BhIdentity{chainID, address, currency}, timeInterval)
 }
 
 func (api *API) GetTokens(ctx context.Context, chainID uint64) ([]*token.Token, error) {
